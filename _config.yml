@@ -1,0 +1,82 @@
+# Site settings
+title: Jackie Xu's Blog        # 你博客的标题
+SEOTitle: Jackie Xu's Blog      # 显示在浏览器上搜索的时候显示的标题
+header-img: img/home-bg.jpg     # 显示在首页的背景图片
+description: "My personal blog which contains everything I wanna write."
+keyword: "Jackie Xu,Blog,Java"    #关键字
+url: "https://xj731231.github.io"              # 填写博客地址
+baseurl: #"/huxblog-boilerplate"         # for example, '/blog' if your blog hosted on 'host/blog'
+
+
+# SNS settings
+RSS: false
+weibo_username:     
+zhihu_username:     xu-jie-39-99    #打开知乎个人主页，对应网址https://www.zhihu.com/people/xu-jie-39-99
+github_username:    xj731231
+twitter_username:  JackieX52194400     #打开推特个人主页，对应网址https://twitter.com/JackieX52194400
+email: xujie1231@foxmail.com    #  你的邮箱地址
+#facebook_username:  huxpro
+
+
+# Build settings
+# from 2016, 'pygments' is unsupported on GitHub Pages. Use 'rouge' for highlighting instead.
+highlighter: rouge          #用rouge支持高亮，也可以试试pygments
+permalink: pretty
+paginate: 6
+#  单个页面放置文章数
+
+exclude: ["less","node_modules","Gruntfile.js","package.json","README.md"]
+anchorjs: true                          # if you want to customize anchor. check out line:181 of `post.html`
+
+
+# Gems
+# from PR#40, to support local preview for Jekyll 3.0
+gems: [jekyll-paginate]
+
+
+# Markdown settings
+# replace redcarpet to kramdown,
+# although redcarpet can auto highlight code, the lack of header-id make the catalog impossible, so I switch to kramdown
+# document: http://jekyllrb.com/docs/configuration/#kramdown
+markdown: kramdown
+kramdown:
+  input: GFM                            # use Github Flavored Markdown !important
+
+
+# Disqus settings    找到account-username
+disqus_username: disqus_lEO9HkavJo
+
+
+# statistic analysis 统计代码
+# 按照百度统计代码提示，找到hm.src = "//hm.baidu.com/hm.js?xxxxxxxxxxxx"，复制xxxxx字符串
+# 谷歌同理操作，将统计代码替换为自己的。
+ba_track_id: 44dd06b38dbcbcbf0d43273939a46ed3
+ga_track_id: UA-164062158-1 # google 分析追踪id
+ga_domain: https://xj731231.com     #如果没有自己的域名，需要改成auto
+
+
+# Sidebar settings
+sidebar: true                           # 添加侧边栏
+sidebar-about-description: "代码        &        人生。"
+sidebar-avatar: /img/author-xj.jpg      # 个人头像
+
+
+# Featured Tags         网站 Medium 的推荐标签
+featured-tags: true                     # whether or not using Feature-Tags
+featured-condition-size: 1  
+#如果一个标签的 SIZE，也就是使用该标签的文章数大于上面设定的条件值，这个标签就会在首页上被推荐。
+
+
+# Friends    可以续加。我不太明白名字在哪里修改，肯定在某个地方有FRIENDS，会的可以教教我
+friends: [
+    {
+        title: "小破站(゜-゜)つロ干杯~ ",
+        href: "https://space.bilibili.com/24848522"
+    },{
+        title: "不要点我",
+        href: "http://www.zol.com.cn/"
+    },{
+        title: "点了没用",
+        href: "https://www.hpoi.net/search"
+    }
+]
