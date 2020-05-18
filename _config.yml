@@ -73,10 +73,10 @@ friends: [
         title: "CSDN博客",
         href: "https://mp.csdn.net/console/article"
     },{
+        title: "简书",
+        href: "https://www.jianshu.com/u/ef894e90a906"
+    },{
         title: "小破站(゜-゜)つロ干杯~ ",
         href: "https://space.bilibili.com/24848522"
-    },{
-        title: "点了没用",
-        href: "https://www.hpoi.net/search"
     }
 ]
