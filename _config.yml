@@ -10,7 +10,7 @@ baseurl: #"/huxblog-boilerplate"         # for example, '/blog' if your blog hos
 
 # SNS settings
 RSS: false
-weibo_username:     
+weibo_username:     6578375530/profile?rightmod=1&wvr=6&mod=personinfo&is_all=1   #我的博客页面
 zhihu_username:     xu-jie-39-99    #打开知乎个人主页，对应网址https://www.zhihu.com/people/xu-jie-39-99
 github_username:    xj731231
 twitter_username:  JackieX52194400     #打开推特个人主页，对应网址https://twitter.com/JackieX52194400
