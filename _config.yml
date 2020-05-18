@@ -70,7 +70,7 @@ featured-condition-size: 1
 # Friends    可以续加。我不太明白名字在哪里修改，肯定在某个地方有FRIENDS，会的可以教教我
 friends: [
     {
-        title: "CSDN博客",
+        title: "CSDN",
         href: "https://mp.csdn.net/console/article"
     },{
         title: "简书",
