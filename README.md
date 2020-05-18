@@ -170,20 +170,3 @@ $ git push -f origin master
 
 **0xC00005 关于 Disqus 的正确使用知识： https://www.jianshu.com/p/7e4453421b8f**
 
-**图片素材来源于站酷的蒸汽工场： https://www.zcool.com.cn/u/13601840/timeLine#tab_anchor**
-
-**尚硅谷git配置：https://www.bilibili.com/video/BV1pW411A7a5?from=search&seid=2339699716155106176**
-
-**_随心 git 的上传知识：https://blog.51cto.com/hellokugo/1615715**
-
-**不蒜子 的网站计数：http://ibruce.info/2015/04/04/busuanzi/**
-
-**GHY 大神的博客模板（旧）：https://github.com/Gaohaoyang/gaohaoyang.github.io**
-
-**徐代龙的搭建博客指南（旧）：https://blog.csdn.net/xudailong_blog/article/details/78762262**
-
-**廖雪峰 git 教程：https://www.liaoxuefeng.com/wiki/896043488029600**
-
-**BYQiu 的博客搭建指南：https://www.jianshu.com/p/e68fba58f75c**
-
-**git bash 操作文件及文件夹命令：https://blog.csdn.net/shenziheng1/article/details/77332459**
