@@ -1,0 +1,2847 @@
+---
+layout:     post
+title:      "JDBC精讲"
+subtitle:   " \"连接池 & 基于 jdbc 的框架\""
+date:       2021-06-16 10:39:10
+author:     "Jackie Xu"
+header-img: "img/2021-06-16-Blog/post-bg-20210616.jpg"
+tags:
+    - Java
+---
+
+
+
+
+
+
+## 引言
+
+**在 Java 中，数据库存取技术可分为如下几类：**
+
+1. JDBC 直接访问数据库
+2. JDO 技术
+3. 第三方 O/R 工具，如 Hibernate ,  ibatis 等
+
+**JDBC 是 java 访问数据库的基石， JDO ,  Hibernate 等只是更好的封装了 JDBC**
+
+
+
+
+
+## JDBC
+
+### 一. 简要概述
+
+​		JDBC（ 商标名称，并不是首字母缩略词；但通常被认为是  Java Database Connectivity ）制定了统一的 Java 程序访问各类关系数据库的标准接口，为各个数据库厂商提供了标准的实现。通过 JDBC 技术，开发人员可以用纯 Java 语言和标准的 SQL 语句编写完整的数据库应用程序，并且真正地实现了软件的跨平台性。
+
+其执行流程大体如下：
+
+- 连接数据库
+- 为数据库发送 SQL 语句
+- 处理从数据库返回的结果
+
+使用 Java 程序访问数据库时，Java 代码并不是直接通过 TCP 连接去访问数据库，而是通过 JDBC 接口（ Java 标准库自带的，可直接编译）来访问，而 JDBC 接口则通过具体的 JDBC 驱动（由数据库厂商提供）来实现真正对数据库的访问。这样保证了Java程序编写的是一套数据库访问代码，却可以访问各种不同的数据库，因为他们都提供了标准的JDBC驱动。
+
+<img src="C:\Users\34893\Desktop\博客等展示相关\截图存储\JDBC\jdbc的本质与结构.jpg" alt=" JDBC Driver Manager -- JDBC Driver -- DataBase" style="zoom:67%;" />
+
+
+
+#### JDBC 驱动
+
+​		JDBC 驱动提供了特定厂商对 JDBC API 接口类的实现（ jar 包 ），驱动必须要提供 java.sql 包下面这些类的实现：Connection , Statement , PreparedStatement , CallableStatement , ResultSet
+
+#### 使用 JDBC 的好处
+
+- 各数据库厂商使用相同的接口，Java 代码不需要针对不同数据库分别开发，使软件开发人员从复杂的驱动程序编写工作中解脱出来，可以完全专注于业务逻辑开发
+  - Java 程序编译期仅依赖 java.sql 包，不依赖具体数据库的 jar 包
+  - 无需关心底层特定数据库的细节
+  - 支持多种关系型数据库，可移植性增强
+- JDBC API 是面向对象的，通过对常用的方法进行二次封装，来提高代码的重用性
+
+
+
+？？？？？？？？？？？？？？？？？？？？？jar包和实际的数据库连接，通过TCP？？？？
+
+Java 程序本身只需要引入一个 MySQL 驱动的 jar 包就可以正常访问 MySQL 服务器
+
+？？？？？TODO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### 简要说明
+
+JDBC ：一套用于数据库操作的接口
+
+JDBC 驱动 ：需要针对这套接口，提供不同实现。不同的实现的集合，即为不同数据库的驱动
+
+JDBC接口（ API ）包括两个层次：
+ 面向应用的 API ：Java API ，抽象接口，供应用程序开发人员使用（ 连接数据库，执行 SQL 语句，获得结果 ）
+ 面向数据库的 API ：Java Driver API ，供开发商开发数据库驱动程序用
+
+
+
+### 二. 实际使用
+
+#### 1. 创建数据库
+
+```sql
+-- 创建数据库learjdbc:
+DROP DATABASE IF EXISTS learnjdbc;
+CREATE DATABASE learnjdbc;
+
+-- 创建登录用户learn/口令learnpassword
+CREATE USER IF NOT EXISTS jackiexu @'%' IDENTIFIED BY 'xj731231';
+GRANT ALL PRIVILEGES ON learnjdbc.* TO learn@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+
+/*
+- Step 1. 创建用户
+  - CREATE USER 'username'@'host' IDENTIFIED BY 'password';
+    -  username ：自定义的用户名
+    - host ：登录域名，host 为 ` % ` 时，表示任意 IP ，允许远程登陆；为 ` localhost ` 时表示本机；或者填写指定的 IP 地址
+    - paasword ：密码
+  - CREATE USER 'bbb'@'%' IDENTIFIED BY '123456'; 
+    - 新创建用户，名为 bbb ，用户密码为 123456
+  - CREATE USER 'ccc'@'%' ; 
+    - 新用户 ccc ，没有密码，可以从其他电脑远程登陆 mysql 服务器
+
+- Step 2. 授权用户
+  - GRANT ALL PRIVILEGES ON appmetadataDB.* TO 'aaa'@'%'; 
+    - 将数据库 appmetadataDB 下的所有表授权给用户 aaa ；这样用户名 aaa 就能远程访问到这个数据库下的所有表
+    - 这里写入 user 表，但是并没有及时写入权限表（ grant table ）
+    - 如果对授权有要求，可以规定具体的数据库和数据表
+
+- Step 3. 刷新权限表
+  - flush privileges;
+    - 授权之后刷新权限：将新加入的用户写入权限表中，即更新 grant table 
+    
+- Step 4. 查看新建的用户和密码
+  - mysql> SELECT host,user,authentication_string FROM mysql.user;
+
+	[ 注 ] . In MySQL 5.7 ,  the ` password ` field in ` mysql.user ` table field was removed , now the field name is ` authentication_string ` .    【 mysql 早前的版本 user 表有 password 字段，5.7 为 authentication_string 】
+*/
+
+-- 创建表students:
+USE learnjdbc;
+CREATE TABLE students (
+  id BIGINT AUTO_INCREMENT NOT NULL,
+  name VARCHAR(50) NOT NULL,
+  gender TINYINT(1) NOT NULL,
+  grade INT NOT NULL,
+  score INT NOT NULL,
+  PRIMARY KEY(id)
+) Engine=INNODB DEFAULT CHARSET=UTF8;
+
+-- 插入初始数据:
+INSERT INTO students (name, gender, grade, score) VALUES ('小明', 1, 1, 88);
+INSERT INTO students (name, gender, grade, score) VALUES ('小红', 1, 1, 95);
+INSERT INTO students (name, gender, grade, score) VALUES ('小军', 0, 1, 93);
+INSERT INTO students (name, gender, grade, score) VALUES ('小白', 0, 1, 100);
+INSERT INTO students (name, gender, grade, score) VALUES ('小牛', 1, 2, 96);
+INSERT INTO students (name, gender, grade, score) VALUES ('小兵', 1, 2, 99);
+INSERT INTO students (name, gender, grade, score) VALUES ('小强', 0, 2, 86);
+INSERT INTO students (name, gender, grade, score) VALUES ('小乔', 0, 2, 79);
+INSERT INTO students (name, gender, grade, score) VALUES ('小青', 1, 3, 85);
+INSERT INTO students (name, gender, grade, score) VALUES ('小王', 1, 3, 90);
+INSERT INTO students (name, gender, grade, score) VALUES ('小林', 0, 3, 91);
+INSERT INTO students (name, gender, grade, score) VALUES ('小贝', 0, 3, 77);
+
+/*
+查看表中的列 & 属性，无具体 values
+	SHOW COLUMNS FROM students;
+	更便捷方式 DESCRIBE students;
+查看具体 values
+	SELECT * FROM students;
+[ 注 ] .  表中数据的查询，详细的命令可参照《 MySQL 入门学习》一文
+*/
+```
+
+​	<img src="C:\Users\34893\Desktop\博客等展示相关\截图存储\JDBC\database，table以及表中列展示.png" style="zoom: 50%;" />
+
+#### 2. JDBC 的编程步骤
+
+<img src="C:\Users\34893\Desktop\博客等展示相关\截图存储\JDBC\jdbc运行流程.jpg" alt="步骤：导入驱动包（mysql，oracle，sybase……），装载数据库驱动程序；连接数据库；获取可执行sql语句的对象，执行sql语句；关闭连接" style="zoom:67%;" />
+
+#### 3. 实际应用
+
+```java
+package com.xj731231.test;
+
+import java.sql.*;
+
+public class testJDBC {
+
+    // 数据库的用户名、密码和数据库 URL ，需要根据自己的设置
+    static final String USER = "jackie";
+    static final String PASS = "******";
+
+    /*
+    	jdbc ：注册数据库的协议
+    	mysql ：jdbc的子协议
+    	ip地址（域名）：端口号/数据库名称
+    */
+    static final String DB_URL = "jdbc:mysql://localhost:3306/learnjdbc?useSSL=false&serverTimezone=UTC";
+
+    Connection conn = null;
+    Statement stmt = null;
+
+    /* 
+    MySQL 8.0 以下版本 - JDBC 驱动名
+    static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
+    */
+
+    // MySQL 8.0 以上版本 - JDBC 驱动名
+    static final String JDBC_DRIVER = "com.mysql.cj.jdbc.Driver";
+
+    public testJDBC() {
+        try {
+            //  加载（注册）驱动程序：明确使用哪一个数据库驱动 jar （注册可配置和可移植）
+            Class.forName(JDBC_DRIVER);
+            System.out.println("加载数据库驱动成功");
+            
+            /*
+            	由源码可知，在 com.mysql.jdbc.Driver 类中存在方法：DriverManager.registerDriver(new Driver()); 我们继续深入 DriverManager 查看，发现方法：registerDriver(driver, null); 此方法用驱动管理程序注册 jdbc 驱动器
+     		*/
+
+        } catch (ClassNotFoundException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        try {
+            //  获取数据库连接
+            conn = DriverManager.getConnection(DB_URL, USER, PASS);
+            System.out.println("连接数据库驱动成功");
+
+            //  通过数据库的连接操作数据库，实现增删改查
+            stmt = conn.createStatement();
+
+            // ResultSet 对象代表 Sql 语句的执行结果，它维护了一个数据行的游标
+            ResultSet rs = stmt.executeQuery("SELECT * FROM students");
+
+            // 如果对象中有数据，就会循环打印出来
+            while (rs.next()) {
+                
+                System.out.println(rs.getString("name") + "," + rs.getInt("gender") + "," + rs.getInt("grade") + "," + rs.getInt(5));
+                
+            }
+        } catch (SQLException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        //  释放资源
+        try {
+            stmt.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        try {
+            conn.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    PreparedStatement stmt1 = null;
+    ResultSet rs1 = null;
+
+    public void testState() {
+        try {
+            Class.forName(JDBC_DRIVER);
+            System.out.println("再次加载数据库驱动成功");
+        } catch (ClassNotFoundException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        try {
+            conn = DriverManager.getConnection(DB_URL, USER, PASS);
+            System.out.println("再次连接数据库驱动成功");
+
+            stmt1 = conn.prepareStatement("SELECT * FROM students WHERE grade > ? AND score > ?");
+            stmt1.setObject(1, 1);
+            stmt1.setObject(2, 80);
+
+			//  向数据库发出sql执行查询，查询出结果集
+            rs1 = stmt1.executeQuery();
+
+            /*
+            两相对比，其实就是？占位符的区别
+            stmt = conn.createStatement();
+            ResultSet rs = stmt.executeQuery("SELECT * FROM students");
+             */
+
+            while (rs1.next()) {
+                System.out.println(rs1.getString("name") + "," + rs1.getInt("gender") + "," + rs1.getInt("grade") + "," + rs1.getInt(5));
+            }
+
+        } catch (SQLException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } finally {
+            //  释放资源
+            if (rs1 != null) {
+                try {
+                    rs1.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
+            if (stmt1 != null) {
+                try {
+                    stmt1.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
+            if (conn != null) {
+                try {
+                    conn.close();
+                } catch (SQLException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        testJDBC tt = new testJDBC();
+
+        System.out.println("----------------------------");
+        System.out.println("----------------------------");
+        System.out.println("----------------------------");
+
+        tt.testState();
+    }
+}
+
+控制台输出
+
+加载数据库驱动成功
+连接数据库驱动成功
+小明,1,1,88
+小红,1,1,95
+小军,0,1,93
+小白,0,1,100
+小牛,1,2,96
+小兵,1,2,99
+小强,0,2,86
+小乔,0,2,79
+小青,1,3,85
+小王,1,3,90
+小林,0,3,91
+小贝,0,3,77
+----------------------------
+----------------------------
+----------------------------
+再次加载数据库驱动成功
+再次连接数据库驱动成功
+小牛,1,2,96
+小兵,1,2,99
+小强,0,2,86
+小青,1,3,85
+小王,1,3,90
+小林,0,3,91
+
+```
+
+##### 	[ 附 ] .  关于 Connection ，Statement ，ResultSet 的方法
+
+```java
+/* 客户端与数据库的交互通过 Connection 来完成的，connection 中常用方法 */
+
+	// 创建向数据库发送 sql 的 statement 对象。
+	connection.createStatement()
+    
+	// 创建向数据库发送预编译 sql 的 PrepareSatement 对象。
+	connection.prepareStatement(String sql)
+    
+	// 创建执⾏存储过程的 callableStatement 对象
+	connection.prepareCall(String sql)
+	/*
+		注 1 . CallableStatement 对象主要用于执行数据库中定义的存储过程和存储函数，继承自 PreparedStatement
+		注 2 . 存储过程（ Stored Procedure ）是一组为了完成特定功能的 SQL 语句集，经编译后存储在数据库中。用户通过指定存储过程的名字并给出参数（如果该存储过程带有参数）来执行它
+	*/
+    
+	// 设置事务自动提交
+	connection.setAutoCommit(boolean autoCommit)
+    
+	// 提交事务
+	connection.commit()
+    
+	// 回滚事务
+	connection.rollback()
+        
+        
+/* Statement 对象用于向数据库发送 Sql 语句，对数据库的 “ 增删改查 ” 都可以通过此对象发送 sql 语句完成；其常用方法 */
+
+	// 查询 【 执行 DQL（select）语句，会返回⼀个 ResultSet 对象】
+	statement.executeQuery(String sql)
+        
+	// 增删改：执行 DML（ insert、update、delete ）、DDL（ create，alter、drop ）
+	statement.executeUpdate(String sql)
+   	/*
+   		返回值为 int ：> 0 执行成功
+   		either the row count for SQL Data Manipulation Language (DML) statements or 0 for SQL statements that return nothing 【要么是 SQL 数据操作语言 (DML) 语句的行数 或 0 （对于不返回任何内容的 SQL 语句）】
+    */
+        
+        
+/* 
+	ResultSet 实际上用来封装查询结果
+	
+	关于 ResultSet 类，我摘取了一段他的原话：
+		The ResultSet interface provides getter methods (getBoolean, getLong, and so on) for retrieving column values from the current row. Values can be retrieved using either the index number of the column or the name of the column.         In general, using the column index will be more efficient.
+*/
+
+	// 获取任意类型的数据
+	resultSet.getObject(String columnName)
+    /*
+    	Gets the value of the designated column in the current row of this ResultSet object as an Object in the Java programming language. This method will return the value of the given column as a Java object 
+    	【 获取此 ResultSet 对象的当前行中指定列的值作为 Java 编程语言中的 Object 。此方法将给定列的值作为 Java 对象返回 】
+    */
+    
+	// 获取指定类型的数据【各种类型，查看API】
+	resultSet.getString(String columnName)
+    /*
+    	Retrieves the value of the designated column in the current row of this ResultSet object as a String in the Java programming language.
+    	【 以 Java 编程语言中的 String 形式检索此 ResultSet 对象的当前行中指定列的值 】
+    */
+    
+/*        对结果集进行滚动的查看方法        */
+    
+    // 调用 ResultSet.next() 方法，可以让游标指向具体的数据行，进而获取该行的数据
+	resultSet.next()
+    /*
+    	Moves the cursor forward one row from its current position
+    	游标向下移动一行，判断当前行是否是最后一行末尾（是否有数据），如果是则返回 false ，如果不是则返回 true
+    	[ 注 ] .  下述方法作用类似，看方法名就知道了
+    */
+    
+	resultSet.Previous()
+    
+	resultSet.absolute(int row) 
+    
+	resultSet.beforeFirst()
+    
+	resultSet.afterLast()
+```
+
+##### 	Ⅲ. JDBC抽取工具类
+
+```java
+package com.xj731231.util;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.sql.*;
+import java.util.Properties;
+
+/**
+ * Created by Jackie Xu on 2020/9/1.
+ * extract jdbc tool class
+ */
+public class DBUtil {
+
+    private static String driver;
+    private static String url;
+    private static String username;
+    private static String password;
+
+    //  加载配置文件信息
+    static {
+
+        try{
+            //  获取类加载器
+            ClassLoader classLoader = DBUtil.class.getClassLoader();
+            //  获得输入流
+            InputStream inputStream = classLoader.getResourceAsStream("db.properties");
+
+            Properties properties = new Properties();
+            //  加载输入流
+            properties.load(inputStream);
+            //  获取参数值
+            driver = properties.getProperty("driver");
+            url = properties.getProperty("url");
+            username = properties.getProperty("username");
+            password = properties.getProperty("password");
+
+        }catch (IOException e){
+
+            e.printStackTrace();
+        }
+
+    }
+
+    //  获取连接方法
+    public static Connection getConnection(){
+
+        Connection connection = null;
+
+        try {
+            //  需要在WEB-INF的lib下导入jdbc驱动，同时更新 project structure 的配置
+            Class.forName(driver);
+            // TODO 这里这一步有什么用没有？？？？去网上查一下
+            
+            connection = DriverManager.getConnection(url,username,password);
+
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (SQLException e){
+            e.printStackTrace();
+        }
+
+        return connection;
+    }
+
+    // 关闭连接，释放资源
+    public static void release(Connection connection, PreparedStatement preparedStatement, ResultSet resultSet) {
+
+        // 应该始终显式地、按顺序地关闭对象，以确保按正确顺序清理资源
+        if(resultSet != null){
+            try {
+                resultSet.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+
+        if(preparedStatement != null){
+            try {
+                preparedStatement.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+
+        if(connection != null){
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
+```
+
+```properties
+#  即DBUtil.java中所需的db.properties
+driver = com.mysql.cj.jdbc.Driver
+url = jdbc:mysql://localhost:3306/practicejdbc
+user = root
+password = 123456
+
+# 这种方式优点在于：只要更换 properties 配置文件，即可更换数据库信息，无需进入代码中修改
+```
+
+**[ 注 1 ] .  创建 Properties 文件的方式**
+
+1. 点击 ` new - Resource Bundle ` ，输入名称即可：例如输入 db ，即生成 db.properties 
+2. 点击 ` new - File ` ，输入完整名称：例如 db.properties
+
+**[ 注 2 ] .  Statement 和 PreparedStatement 的详细探究**
+
+```java
+Connection conn = DriverManager.getConnection(url,username,password);
+
+
+// Statement 对象
+Statement stmt = conn.createStatement();
+String sql = "UPDATE merchandise SET sales = 75 WHERE type = " + type + " AND name = " + name;
+ResultSet rs = stmt.executeUpdate(sql);
+/*
+	1. Statement 会频繁编译 SQL ：每次执行 sql 语句，相关数据库都要对其编译
+	2. SQL 语句变量使用分隔符来隔开，如果变量非常多，就会使 SQL 变得非常复杂
+	3. SQL 注入漏洞
+		① 若入参 name 的值为 '' OR 1=1 ，那么 SQL 是无条件成立的
+		UPDATE merchandise SET sales = 75 WHERE type = 'maya' AND name = '' OR 1=1
+		② 更有甚者，若使用 ''; DROP TABLE merchandise; ，那么 SQL 拼接后就变成
+		UPDATE merchandise SET sales = 75 WHERE type = 'maya' AND name = ''; DROP TABLE merchandise;
+*/
+
+
+// PreparedStatement 对象继承自 Statement 对象
+String preSql = " UPDATE merchandise SET sales = ? WHERE type = ? AND name = ? ";
+PreparedStatement prepStmt = conn.prepareStatement(preSql);
+
+prepStmt.setInt(1, 75);
+prepStmt.setString(2, "maya");
+prepStmt.setString(3, "Colombian");
+prepStmt.executeUpdate();
+/*
+PreparedStatement 可对 SQL 进行预编译和存储
+预编译的,对于批量处理可以大大提高效率
+使用占位符，简化 sql 的编写
+*/
+
+
+/*    
+		========  优劣比较  ========
+
+1. 在对数据库只执行一次性存取的时侯，更适合用 Statement 对象进行处理
+	对于 Statement , 同一个查询只会产生一次网络到数据库的通讯
+	对于 PreparedStatement ，第一次执行消耗是很高的
+	【 摘自网络讲解：使用 PreparedStatement 的方式来执行一个针对数据库表的查询，JDBC 驱动会发送一个网络请求到数据解析和优化这个查询. 而执行时会产生另一个网络请求 】
+
+2. 若需执行多次 SQL 语句（句法相同，仅仅变量不同），更适合用 PreparedStatement 对象进行处理
+	由于已被预编译过，因而当其执行时，只需 DBMS 运行 SQL 语句，而不必先编译
+	大大降低运行时间，加快访问数据库的速度，同时增加了代码的可读性
+
+3. PreparedStatement 更具有安全性
+	Statement 通过分隔符 ' + ' 编写永等式，可以不需要密码就进⼊数据库
+	PreparedStatement 可防止 SQL 注⼊
+		① SQL 语句在程序运行前已经进行了预编译，在第一次操作数据库之前，数据库已分析和编译 SQL 语句
+		② 对应的执行计划也会缓存下来，之后数据库就会以参数化的形式进行查询
+		③ set 值永远是把占位符当成 data 处理
+	
+4. 传递给 PreparedStatement 对象的参数可以被强制进行类型转换，使开发人员可以确保在插入或查询数据时与底层的数据库格式匹配。
+
+
+		========  改进功能  ========
+
+Update 大量的数据时, 先构建一个 INSERT 语句再多次的执行, 会导致很多次的网络连接.。要减少 JDBC 的调用次数改善性能, 可以使用 PreparedStatement 的 AddBatch() 方法一次性发送多个查询给数据库。
+
+	// 初始实现：
+	PreparedStatement ps = conn.prepareStatement( "INSERT INTO merchandise VALUES (?, ?, ?, ?)" );
+    for (n = 0; n < 100; n++) {
+        ps.setInt(1, id[n]);
+        ps.setString(2, name[n]);
+        ps.setString(3, type[n]);
+        ps.setInt(4, sale[n]);
+        ps.executeUpdate();
+    }
+
+	// 改进实现，使用 Batch 功能：
+	conn.setAutoCommit(false); // 关闭自动提交，因为是全放在一起，一次性提交
+    PreparedStatement ps = conn.prepareStatement( "INSERT INTO merchandise VALUES (?, ?, ?, ?)" );
+    for (n = 0; n < 100; n++) {
+        ps.setInt(1, id[n]);
+        ps.setString(2, name[n]);
+        ps.setString(3, type[n]);
+        ps.setInt(4, sale[n]);
+        ps.addBatch(); // 把这条执行语句加到 PreparedStatement 对象的批处理命令中
+    }
+    int[] counts = ps.executeBatch(); // 把添加的所有批处理命令一次性提交给数据库来执行 
+    conn.commit();
+*/
+```
+
+
+
+**[ 附录 1 ] .  通过 JDBC 连接数据库的几个版本（网上摘录）**
+
+```java
+// 版本4.0 最终版
+@Test
+public void test4() throws Exception{
+	Properties pros = new Properties();
+    pros.load(this.getClass().getClassLoader().getResourceAsStream("com/xj/jdbc/db.properties"));
+	String driverClassName = pros.getProperty("driverClassName");
+	String url = pros.getProperty("url");
+	String user = pros.getProperty("user");
+	String password = pros.getProperty("password");
+	
+	//1. 加载驱动
+	Class.forName(driverClassName);
+	
+	//2. 获取连接
+	Connection conn = DriverManager.getConnection(url, user, password);
+	
+	System.out.println(conn);
+}
+
+// 版本3.0 
+@Test
+public void test3() throws Exception{
+	String driverClassName = "com.mysql.jdbc.Driver";
+	String url = "jdbc:mysql://127.0.0.1:3306/test";
+	String user = "root";
+	String password = "123456";
+	/*
+	 * 通常不用显式调用 DriverManager 类的 registerDriver() 
+	 * 方法来注册驱动程序类的实例，因为 Driver 接口的驱动程序类都包含了静态代码块，
+	 * 在这个静态代码块中，随类加载而加载，即Class类加载时就加载了驱动，所以它会
+	 * 会调用 DriverManager.registerDriver() 方法来注册自身的一个实例
+	 */
+	//1. 加载驱动
+	Class.forName(driverClassName);
+	
+	//2. 获取连接
+	Connection conn = DriverManager.getConnection(url, user, password);
+	
+	System.out.println(conn);
+}
+
+// 版本2.0 利用 DriverManager（驱动管理类），获取数据库连接
+@Test
+public void test2() throws Exception{
+	String driverClassName = "com.mysql.jdbc.Driver";
+	String url = "jdbc:mysql://127.0.0.1:3306/test";
+	String user = "root";
+	String password = "123456";
+	
+	//1. 注册驱动
+	Driver driver = null;
+	
+	Class clazz = Class.forName(driverClassName);
+	
+	driver = (Driver) clazz.newInstance();
+	
+	DriverManager.registerDriver(driver);
+	
+	//2. 获取连接
+	Connection conn = DriverManager.getConnection(url, user, password);
+	
+	System.out.println(conn);
+}
+
+// 版本1.0 利用反射，根据 MySQL 厂商提供的驱动，获取 MySQL 数据库的连接
+@Test
+public void test1() throws Exception{
+	String driverClassName = "com.mysql.jdbc.Driver";
+	
+	//1. 获取驱动
+	Driver driver = null;
+	
+	Class clazz = Class.forName(driverClassName);
+	
+	driver = (Driver) clazz.newInstance();
+	
+	//2. 获取连接
+	String url = "jdbc:mysql://127.0.0.1:3306/test";
+	
+	Properties info = new Properties();
+	info.setProperty("user", "root");
+	info.setProperty("password", "123456");
+	
+	Connection conn = driver.connect(url, info);
+	
+	System.out.println(conn);
+}
+```
+
+**[ 附录 2 ] .  ODBC（网上摘录）**
+
+​	ODBC（ Open DataBase Connectivity ）是微软倡导的、当前被业界广泛接受的、用于数据库访问的应用程序编程接口（ API ），它以 X/Open 和 ISO/IEC 的调用级接口（ CLI ）规范为基础，并使用结构化查询语言（ SQL ）作为其数据库访问语言
+
+​	与 JDBC 的联系：
+
+1.  JDBC 与 ODBC 都是基于 X/Open 的 SQL 调用级接口
+2.  JDBC 的设计在思想上沿袭了 ODBC ，同时在其主要抽象和 SQL 
+3. CLI 实现上也沿袭了 ODBC ，这使得 JDBC 容易被接受
+4.  JDBC 的总体结构类似于 ODBC ，也有四个组件：应用程序、驱动程序管理器、驱动程序 和 数据源
+5.  JDBC 保持了 ODBC 的基本特性，也独立于特定数据库
+
+
+
+### 三. JDBC 问题分析
+
+1. 数据库连接创建、释放频繁造成系统资源浪费、影响系统性能，严重时会造成服务器的崩溃
+
+   ​		普通的 JDBC 数据库连接使用 DriverManager 来获取， 每次向数据库建立连接的时候都要将 Connection 加载到内存中，再验证用户名和密码
+
+   ​		执行完成后，数据库连接都得断开，否则，如果程序出现异常而未能关闭，将会导致数据库系统中的内存泄漏，最终将导致重启数据库
+
+   ​		不能控制被创建的连接对象数，系统资源会被毫无顾及的分配出去，如连接过多，也可能导致内存泄漏，服务器崩溃
+
+2. Sql 语句在代码中硬编码，对结果集解析也存在硬编码（查询列名）。实际应用时， sql 变化的可能性较大，会造成代码不易维护
+
+
+
+
+
+## 数据库连接池
+
+```
+A factory for connections to the physical data source that this DataSource object represents. An alternative to the DriverManager facility, a DataSource object is the preferred means of getting a connection. An object that implements the DataSource interface will typically be registered with a naming service based on the Java™ Naming and Directory (JNDI) API.
+
+【 摘自注释（译）：用于连接到此 DataSource 对象表示的物理数据源的工厂。作为 DriverManager 工具的替代方案，DataSource 对象是获取连接的首选方法。实现 DataSource 接口的对象通常会注册到基于 Java™ Naming and Directory (JNDI) API 的命名服务。】
+
+	连接池的基本思想就是为数据库连接建立一个 “ 缓冲池 ” 。预先在缓冲池中放入一定数量的连接，当需要建立数据库连接时，只需从 “ 缓冲池 ” 中取出一个，使用完毕之后再放回去。
+	连接池负责分配、管理和释放数据库连接，它允许应用程序重复使用一个现有的数据库连接，而不是重新建立一个。
+	连接池在初始化时将创建一定数量的数据库连接放到连接池中，这些数据库连接的数量是由最小数据库连接数来设定的。无论这些数据库连接是否被使用，连接池都将一直保证至少拥有这么多的连接数量。
+	连接池的最大数据库连接数量限定了这个连接池能占有的最大连接数，当应用程序向连接池请求的连接数超过最大连接数量时，这些请求将被加入到等待队列中。
+	连接池本质上是一种抗高并发的手段，对连接池的优化主要是对参数的优化。
+```
+
+**JDBC 的数据库连接池使用 javax.sql.DataSource 来表示，关于 DataSource**
+
+- DataSource 只是一个接口，通常由服务器（ Weblogic ，WebSphere ，Tomcat ）提供实现，也有一些开源组织提供实现（ DBCP 数据库连接池，C3P0 数据库连接池 ）
+
+- DataSource 通常被称为数据源，它包含连接池和连接池管理两个部分，习惯上直接称为连接池
+
+- DataSource 用来取代 DriverManager 来获取 Connection ，获取速度快，同时可以大幅度提高数据库访问速度
+
+  [ 注 1 ] .  数据源和数据库连接不同，数据源无需创建多个，它是产生数据库连接的工厂，因此整个应用只需要一个数据源即可
+  [ 注 2 ] .  当数据库访问结束后，程序还是像以前一样关闭数据库连接：` conn.close() ; `  但上面的代码并没有关闭数据库的物理连接，它仅仅把数据库连接释放，归还给了数据库连接池
+
+
+
+### 开源连接池
+
+#### C3P0
+
+C3P0 是一个开源的 JDBC 连接池，它实现了数据源和 JNDI 的绑定，支持 JDBC3 规范和 JDBC2 的标准扩展，目前使用它的开源项目有 Hibernate ，Spring 等
+
+###### 关于 c3p0 的配置
+
+```java
+/*		方式一 ：通过 set 方法进行配置	*/
+@Test
+public void test1() throws Exception{
+	ComboPooledDataSource cpds = new ComboPooledDataSource();
+	cpds.setDriverClass("com.mysql.cj.jdbc.Driver");
+	cpds.setJdbcUrl("jdbc:mysql://127.0.0.1:3306/test");
+	cpds.setUser("root");
+	cpds.setPassword("123456");
+ 
+    // 至此，完成连接
+	Connection conn = cpds.getConnection();
+}
+
+/*		方式二 ：通过在同 src 目录下的 c3p0-conflg.xml 文件或者 c3p0.properties 文件进行相关的配置	*/
+@Test
+public void test2() throws SQLException{
+    
+    // 【网上摘录原文】 需要一个配置文件（当然也可以用属性文件），且配置文件的名字必须是c3p0-config.xml ，因为数据库厂商底层是根据 key-value 来封装数据的，所以会根据这个key来进行匹配读取，而且必须放在src的路径下，因为读取是通过类加载器的方式进行读取的
+	DataSource ds = new ComboPooledDataSource("helloc3p0");
+	
+    // 至此，完成连接
+	Connection conn = ds.getConnection();
+}
+```
+
+**[ 注 1 ] .**  C3P0 名字由来：作者是《星球大战》迷，C3P0 就是其中的一个机器人，并且这个名称中包含 connection  和 pool 的单词字母
+
+**[ 注 2 ] .**  C3P0  自动化操作（ 自动地加载配置文件，并且设置到对象里面 ）自动尝试连接 
+
+**[ 注 3 ] .**  单线程，适用于小型系统
+
+**[ 注 4 ] .**  对于 c3p0 的导包要注意，不然会报错：` Exception in thread "main" java.lang.NoClassDefFoundError: com/mchange/v2/ser/Indirector `
+
+
+
+#### DBCP（ DataBase connection pool ）
+
+dbcp 是 Apache 软件基金组织下的开源连接池实现，Tomcat 的连接池正是采用该连接池来实现的。该数据库连接池既可以与应用服务器整合使用，也可由应用程序独立使用；单独使用 dbcp 需要 3 个包：` common-dbcp.jar（连接池的实现） ` ， ` common-pool.jar（连接池实现的依赖库） ` ， ` common-collections.jar `
+
+###### 关于 dbcp 的配置
+
+- 与上述的 c3p0 类似	
+
+
+```java
+/*		方式一		*/
+@Test
+public void test1() throws SQLException{
+	BasicDataSource bds = new BasicDataSource();
+	bds.setDriverClassName("com.mysql.cj.jdbc.Driver");
+	bds.setUrl("jdbc:mysql://127.0.0.1:3306/test");
+	bds.setUsername("root");
+	bds.setPassword("123456");
+
+    // 具体配置详解可见文末 “ 连接池常用配置项 ”
+	bds.setInitialSize(10);
+	bds.setMaxActive(10);
+
+	// 至此，完成连接
+	Connection conn = bds.getConnection();
+
+	// 将连接放回到连接池中
+	conn.close();
+}
+
+/*		方式二		*/
+@Test
+public void test2() throws Exception{
+	Properties pros = new Properties();
+    pros.load(DataSourceTest.class.getClassLoader().getResourceAsStream("dbcp.properties"));
+	
+	DataSource ds = BasicDataSourceFactory.createDataSource(pros);
+
+	Connection conn = ds.getConnection();
+}
+```
+**[ 注 1 ] .**  dbcp 默认不自动回收空闲连接，需要手动开启；c3p0 默认自动回收空闲连接
+
+**[ 注 2 ] .**  单线程，并发量低，适用于小型系统
+
+**[ 注 3 ] .**  具体项目应用时，拥有良好的持续运行稳定性，但速度稍慢；在大并发量的压力下稳定性有所下降
+
+**[ 注 4 ] .**  不提供连接池监控
+
+
+
+#### Tomcat Jdbc Pool 
+
+​		Tomcat 在 7.0 以前都是使用 common-dbcp 做为连接池组件，但是 dbcp 是单线程，性能较差，dbcp 有超过 60 个类，也相对复杂
+
+​		Tomcat 从 7.0 开始，引入新增连接池模块 Tomcat jdbc pool ，基于 Tomcat JULI ，使用 Tomcat 日志框架，完全兼容 dbcp ，通过异步方式获取连接，支持高并发应用环境，超简单，核心文件只有 8 个，支持 JMX ，支持 XA Connection
+
+
+
+#### Proxool
+
+​		该连接池可以设置最大和最小连接，连接等待时间等，基本功能都有
+​		proxool 有一个优势 —— 连接池监控，可以在 web.xml 中做如下配置
+
+```xml
+<servlet>
+	<servlet-name>admin</servlet-name>
+	<servlet-class>org.logicalcobwebs.proxool.admin.servlet.AdminServlet</servlet-class>   
+</servlet>
+<servlet-mapping>
+    <servlet-name>admin</servlet-name>
+	<url-pattern>/admin</url-pattern>
+</servlet-mapping>
+```
+
+并在应用启动后访问：` http://localhost:8080/xxx/admin（具体网址看自己设置情况） ` ，即可监控
+
+**[ 注 1 ] .**  在具体项目应用中，发现此连接池的持续运行的稳定性有一定问题
+
+**[ 注 2 ] .**  proxool 本身的包在监测使用中会有编码问题，有一个解决此问题的包，参见 ` proxool-0.9.0RC3.jar ` ；另外需要jdk1.5以上的环境
+
+**[ 注 3 ] .**  proxool 尽管有明显的性能问题，但由于它具备监控功能，因此建议在开发测试时使用，有助于确定是否有连接没有被关掉，可以排除一些代码的性能问题
+
+
+
+#### Druid
+
+阿里出品，淘宝和支付宝专用数据库连接池，但它不仅仅是一个数据库连接池，它还包含一个ProxyDriver ，一系列内置的 JDBC 组件库，一个 SQL Parser ，支持所有 JDBC 兼容的数据库
+
+Druid 针对 Oracle 和 MySQL 特别优化，比如 Oracle 的 PS Cache 内存占用优化，MySQL 的 ping 检测优化
+
+Druid 提供 SQL-92 的 SQL 的完整支持，这是一个手写的高性能 SQL Parser ，支持 Visitor 模式，使得分析 SQL 的抽象语法树很方便。
+
+Druid 能够提供强大的监控和扩展功能，是一个可用于大数据实时查询和分析的高容错、高性能的开源分布式系统，尤其是当发生代码部署、机器故障以及其他产品系统遇到宕机等情况时，Druid 仍能够保持 100% 正常运行。
+
+主要特色：
+
+- 为分析监控设计，快速的交互式查询；简单 SQL 语句用时 10 微秒以内，复杂 SQL 用时 30 微秒
+- 通过 Druid 提供的 SQL Parser ，可以在 JDBC 层拦截 SQL 做相应处理，比如说分库分表、审计等；Druid 防御 SQL 注入攻击的 WallFilter 就是通过 Druid 的 SQL Parser 分析语义实现的
+- 高可用；可扩展
+
+**[ 注 ] .**  具体可以参照 GitHub 上 温绍锦 的 [Druid连接池介绍](https://github.com/alibaba/druid/wiki/Druid%E8%BF%9E%E6%8E%A5%E6%B1%A0%E4%BB%8B%E7%BB%8D)
+
+
+
+
+#### Hikaricp
+
+BoneCP 和 HikariCP 都是通过解决池管理环境下资源竞争问题来达到高性能连接管理的目的 【 目前 BoneCP 已经 deprecated ，作者推荐使用 HikariCP 】 Springboot 2.0 默认使用的连接池已经从之前的 tomcat-pool 换成了 HikariCP
+
+HikariCP 的几个方面的优化
+
+- 字节码精简 ：优化代码，直到编译后的字节码最少，这样 CPU 缓存可以加载更多的程序代码
+- 优化代理和拦截器：减少代码，例如 HikariCP 的 Statement proxy 只有 100 行代码，只有 BoneCP 的十分之一
+- 自定义数组类型（ FastStatementList ）代替 ArrayList ：避免每次 get() 调用都要进行 range check ，避免调用 remove() 时的从头到尾的扫描
+- 自定义集合类型，使用 ConcurrentBag 提高并发读写的效率
+- 其他针对 BoneCP 缺陷的优化，比如对于耗时超过一个 CPU 时间片的方法调用的研究
+
+**[ 注 ] .**  HikariCP 和 Druid不具有可比性，HikariCP 追求性能，Druid 偏向监控
+
+
+
+### 商业中间件连接池
+
+不熟悉，故摘录网上他人的心得，具体可见文末 “ 哼哼_hello《 java 数据库连接池介绍 》 ” 的博文链接
+
+#### weblogic
+
+【 网上使用评价 】 在具体项目应用中
+
+- 持续运行的稳定性很强，在大并发量的压力下性能也相当优秀
+- 在一些异常情况下，连接池里的连接也能够及时释放
+- 连接池监控一目了然，及时到位
+
+
+
+#### websphere
+
+​		监控的内容还是很强大的，就连接池来说，一样包括当前连接数、曾经达到的峰值、可以使用的连接数、从数据库打开的连接数、曾经关闭的连接数
+​		在压力大的时候可使用的连接数会是负数 【 负数是排队等待的数量 】
+
+【 网上使用评价 】 在具体项目应用中
+
+- 持续运行的稳定性相当强，在大并发量的压力下性能也足够优秀
+- 在一些异常情况下，连接池里的连接能够及时释放
+- 连接池监控配置有些复杂，但是配置好后各项指标一目了然，并且有图形显示
+
+
+
+
+
+## 框架的使用
+
+
+
+// TODO 从这里开始，再做整理
+
+
+
+让我们来总结一下使用传统JDBC操作数据需要经过哪几个步骤：
+
+使用JDBC编程需要连接数据库，注册驱动和数据库信息
+操作Connection，打开 Statement 对象 。
+通过Statement执行SQL， 返回结果到ResultSet对象。
+使用ResultSet读取数据，然后通过代码转化为具体的POJO对象。
+关闭数据库的相关资源。
+那么，如果我们还是继续使用传统的JDBC方式来操作数据库会存在哪些弊端呢？
+
+工作量相对较大。我们需要先连接，然后处理JDBC底层事务，处理数据类型。我们还需要操作Connection对象、Statement对象和ResultSet对象去拿到数据，并准确的关闭它们
+我们要对JDBC编程可能产生的异常进行捕捉处理并正确关闭资源。
+对于一个JDBC操作简单的SQL尚且如止的复杂，何况是更为复杂的应用呢？所以这种模式很快的就被一些新 的方法所取代了。于是ORM就出现了。不过，我们要知道所有的ORM模型都是基于对JDBC的进行封装，不同的ORM模型对JDBC封闭的强度是不一样的。
+
+那么问题来了。什么是ORM模型。ORM模型的作用是什么 。为什么要用ORM模型等一系列疑问。
+由于JDBC存在的缺陷，所以我们在实际工作中很少使用JDBC进行操作数据库的编程。于是我们就提出了对象关系映射（Object Relational Mapping）简称 ORM，或者O/RM，或者 O/R mapping。
+
+什么是ORM模型？
+　　ORM模型就是数据库的表和简单Java对象（Plain Ordinary Java Object，简称POJO）的映射关系模型。
+ORM模型的作用是什么 ？
+　　它主要解决数据库数据和POJO对象的相互映射。我们通过这层映射就可以简单的把数据库表的数据转化为POJO。以便程序员更加容易的理解和应用Java程序.而且程序员一般只需要了解Java应用而无需对数据库进行深入的了解。此外，ORM模型提供了统一的规则使得数据库的数据通过配置便可轻易的映射到POJO上。。
+
+目前我们接触到有Hibernate和MyBatis。
+
+
+
+
+
+  JDBC：
+
+  我们平时使用jdbc进行编程，大致需要下面几个步骤：
+
+  1，使用jdbc编程需要连接[数据库](http://lib.csdn.net/base/mysql)，注册驱动和数据库信息
+
+  2，操作Connection，打开Statement对象
+
+  3，通过Statement对象执行SQL，返回结果到ResultSet对象
+
+  4，使用ResultSet读取数据，然后通过代码转化为具体的POJO对象
+
+  5，关闭数据库相关的资源
+
+ jdbc的缺点：
+
+ 一：工作量比较大，需要连接，然后处理jdbc底层事务，处理数据类型，还需要操作Connection，Statement对象和ResultSet对象去拿数据并关闭他们。
+
+  二：我们对jdbc编程可能产生的异常进行捕捉处理并正确关闭资源
+
+ 
+
+  由于JDBC存在的缺陷，在实际工作中我们很少直接使用jdbc进行编程，用的更多的是ORM对象关系模型来操作数据库，Hibernate就是一个ORM模型
+
+
+
+
+
+
+
+### Hibernate
+
+配置
+
+原理
+
+优缺点
+
+自己动手
+
+
+
+
+
+
+
+   Hibernate：
+
+  Hibernate是建立在若干POJO通过xml映射文件（或注解）提供的规则映射到数据库表上的。我们可以通过POJO直接操作数据库的数据，他提供的是一种全表映射的模型。相对而言，Hibernate对JDBC的封装程度还是比较高的，我们已经不需要写SQL，只要使用HQL语言就可以了。
+
+  使用Hibernate进行编程有以下好处：
+
+  1，消除了代码的映射规则，它全部分离到了xml或者注解里面去配置。
+
+  2，无需在管理数据库连接，它也配置到xml里面了。
+
+  3，一个会话中不需要操作多个对象，只需要操作Session对象。
+
+  4，关闭资源只需要关闭一个Session便可。
+
+  这就是Hibernate的优势，在配置了映射文件和数据库连接文件后，Hibernate就可以通过Session操作，非常容易，消除了jdbc带来的大量代码，大大提高了编程的简易性和可读性。Hibernate还提供了级联，缓存，映射，一对多等功能。Hibernate是全表映射，通过HQL去操作pojo进而操作数据库的数据。
+
+ 
+
+  Hibernate的缺点：
+
+  1，全表映射带来的不便，比如更新时需要发送所有的字段。
+
+  2，无法根据不同的条件组装不同的SQL。
+
+  3，对多表关联和复杂的sql查询支持较差，需要自己写sql，返回后，需要自己将数据封装为pojo。
+
+  4，不能有效的支持存储过程。
+
+  5，虽然有HQL，但是性能较差，大型互联网系统往往需要优化sql，而hibernate做不到。
+
+  
+
+ 
+
+？？？？？？？？？网上看的，也不知道对不对
+
+1. hibernate只支持c3p0
+
+
+
+　优点：　　
+
+消除了代码的映射规则，它全部被分离到XML或者注解里面去配置。
+无需再管理数据库连接，它也配置到XML里面。
+一个会话中，不要操作多个对象，只要操作Sesison即可。
+关闭资源只需要关闭一个Session即可。
+缺点：
+
+全表映射带来的不便，比如更新时需要发送所有的字段。
+无法根据不同的条件组装不同的SQL。　
+对多表关联和复杂的SQL查询支持较差。需要自己写SQL，返回后，需要自己将数据组装到POJO中。
+不能有效支持存储过程。
+虽然有HQL，但是性能较差，大型互联网往往需要优化SQL，而Hibernate做不到。
+
+
+
+
+
+### Mybatis
+
+配置
+
+原理
+
+优缺点
+
+自己动手
+
+
+
+Mybatis：
+
+  为了解决Hibernate的不足，Mybatis出现了，Mybatis是半自动的框架。之所以称它为半自动，是因为它需要手工匹配提供POJO，sql和映射关系，而全表映射的Hibernate只需要提供pojo和映射关系即可。
+
+  Mybatis需要提供的映射文件包含了一下三个部分：sql，映射规则，pojo。在Mybatis里面你需要自己编写sql，虽然比Hibernate配置多，但是Mybatis可以配置动态sql，解决了hibernate表名根据时间变化，不同条件下列不一样的问题，同时你也可以对sql进行优化，通过配置决定你的sql映射规则，也能支持存储过程，所以对于一些复杂和需要优化性能的sql查询它就更加方便。Mybatis几乎可以做到jdbc所有能做到的事情。
+
+
+
+
+
+MyBatis：
+　是为了解决Hibernate的不足。一个关自动映射的框架MyBatis应运而生。之所以称之为半自动。是国为它需要手动匹配提供POJO、SQL和映射关系。而全表的Hibernate只需要提供POJO和映射关系即可。
+
+优点：
+
+易于上手和掌握。
+sql写在xml里，便于统一管理和优化。
+解除sql与程序代码的耦合。
+提供映射标签，支持对象与数据库的orm字段关系映射
+提供对象关系映射标签，支持对象关系组建维护
+提供xml标签，支持编写动态sql。
+缺点：
+
+sql工作量很大，尤其是字段多、关联表多时，更是如此。
+sql依赖于数据库，导致数据库移植性差。
+由于xml里标签id必须唯一，导致DAO中方法不支持方法重载。
+字段映射标签和对象关系映射标签仅仅是对映射关系的描述，具体实现仍然依赖于sql。（比如配置了一对多Collection标签，如果sql里没有join子表或查询子表的话，查询后返回的对象是不具备对象关系的，即Collection的对象为null）
+DAO层过于简单，对象组装的工作量较大。
+不支持级联更新、级联删除。
+编写动态sql时,不方便调试，尤其逻辑复杂时。
+提供的写动态sql的xml标签功能简单（连struts都比不上），编写动态sql仍然受限，且可读性低。
+若不查询主键字段，容易造成查询出的对象有“覆盖”现象。
+参数的数据类型支持不完善。（如参数为Date类型时，容易报没有get、set方法，需在参数上加@param）
+多参数时，使用不方便，功能不够强大。（目前支持的方法有map、对象、注解@param以及默认采用012索引位的方式）
+缓存使用不当，容易产生脏数据。
+
+
+
+
+
+### 什么时候使用Hibernate，Mybatis
+
+  Hibernate作为留下的[Java ](http://lib.csdn.net/base/java)orm框架，它确实编程简易，需要我们提供映射的规则，完全可以通过IDE生成，同时无需编写sql确实开发效率优于Mybatis。此外Hibernate还提供了缓存，日志，级联等强大的功能，但是Hibernate的缺陷也是十分明显，多表关联复杂sql，数据系统权限限制，根据条件变化的sql，存储过程等场景使用Hibernate十分不方便，而性能又难以通过sql优化，所以注定了Hibernate只适用于在场景不太复杂，要求性能不太苛刻的时候使用。
+
+  如果你需要一个灵活的，可以动态生成映射关系的框架，那么Mybatis确实是一个最好的选择。它几乎可以替代jdbc，拥有动态列，动态表名，存储过程支持，同时提供了简易的缓存，日志，级联。但是它的缺陷是需要你提供映射规则和sql，所以开发工作量比hibernate要大些。
+
+ 
+
+
+
+
+
+[jdbc,mybatis,hibernate的区别](http://www.cnblogs.com/rzqz/p/7266092.html)
+
+1）从层次上看，JDBC是较底层的持久层操作方式，而Hibernate和MyBatis都是在JDBC的基础上进行了封装使其更加方便程序员对持久层的操作。
+
+2）从功能上看，JDBC就是简单的建立[数据库](http://lib.csdn.net/base/mysql)连接，然后创建statement，将sql语句传给statement去执行，如果是有返回结果的查询语句，会将查询结果放到ResultSet对象中，通过对ResultSet对象的遍历操作来获取数据；Hibernate是将数据库中的数据表映射为持久层的[Java](http://lib.csdn.net/base/java)对象，对sql语句进行修改和优化比较困难；MyBatis是将sql语句中的输入参数和输出参数映射为java对象，sql修改和优化比较方便.
+
+3）从使用上看，如果进行底层编程，而且对性能要求极高的话，应该采用JDBC的方式；如果要对数据库进行完整性控制的话建议使用Hibernate；如果要灵活使用sql语句的话建议采用MyBatis框架。
+
+
+
+
+
+## 问题FAQ
+
+- **在IDEA中创建maven项目时，有时发现创建出来的项目没有src目录**<img src="C:\Users\34893\Desktop\博客等展示相关\截图存储\JDBC\创建maven项目没有src.png" style="zoom:50%;" />
+
+  
+
+  **解决方案：**在勾选了 `Create from archetype` 之后，不要再继续展开而继续选择
+
+  即不要在选择 Java 相关的插件：`maven-archetype-quickstart`，直接点击Next，完成创建即可
+
+  
+
+- **在使用mysql-connector-java-6.0.6连接mysql数据库的时候，出现了报错：“The server time zone value '�й���׼ʱ��' is unrecognized or represents more than one time zone. ”？**<img src="C:\Users\34893\Desktop\博客等展示相关\截图存储\JDBC\有关时区的错误.png" style="zoom: 50%;" />
+
+  **解决方案：**继续往后看，你会看到这段话 ` “ You must configure either the server or JDBC driver (via the 'serverTimezone' configuration property) to use a more specifc time zone value if you want to utilize time zone support. ” ` 翻译过来就是，您必须配置服务器或驱动程序（ 通过 serverTimezone 配置属性 ）使用一个更具体的时区值如果你想利用时区支持。
+
+  所以我们，在通过在数据库连接 URL 后，加上 ` ?serverTimezone=UTC ` （ 使用UTC，既维护多国环境如中美，时区一致便与维护，又避免 PDT 时区换算出错 ）
+  
+  
+  
+- **出现错误 Library ‘libs’required for module’’ is missing from the artifact**
+
+  **原因**：可能频繁添加或删除 jar 包产生错误 【 artifact ：编译后的 Java 类，Web 资源等的整合，用以测试、部署等工作 】
+
+  **解决方案：**点击减号，重新加载相关模块
+
+  <img src="C:\Users\34893\Desktop\博客等展示相关\截图存储\JDBC\未加入jdbc驱动，缺乏lib.png" alt="Project Settings -- Artifacts" style="zoom:80%;" />
+
+
+
+
+
+## 概念辨析 & 额外拓展
+
+#### 数据库连接原理
+
+JDBC 是Java应用程序用来连接关系型数据库的标准API，为多种关系型数据库提供一个统一的访问接口。Sun公司一共定义4种 JDBC 驱动类型，一般使用第4种，该类型的Driver完全由Java代码实现，通过使用socket与数据库进行通信。
+
+JDBC-ODBC Bridge driver (bridge driver)，JDBC-ODBC桥驱动程序；
+Native-API/partly Java driver (native driver)，JDBC本地API；
+All Java/Net-protocol driver (middleware driver)，JDBC-Net纯Java；
+All Java/Native-protocol driver (Pure java driver)，100％纯Java。
+常规数据库连接一般由以下六个步骤构成：
+
+装载数据库驱动程序；
+建立数据库连接；
+创建数据库操作对象；
+访问数据库，执行sql语句；
+处理返回结果集；
+断开数据库连接。
+此处省略常规 JDBC 获取连接、执行SQL、获取结果集代码，一般严格遵守上面的流程，网上一大堆；
+
+
+
+
+
+
+
+数据库连接的本底上都是tcp连接，tcp连接位于osi的4层上，所有的数据库驱动都在7层上实现自己的协议。数据库连接的协议一般都是二进制的协议。应用程序和数据库每建一个数据库其实就是在底层建立了一个tcp线路，tcp线路是有底层的操作系统实现的，每个线路占用两个端口，发送端口和接收端口，这两个端口在数据交换过程中会互换角色，时而发送、时而接收。当web应用连接mysql数据库时，目标的接收端口是3306，连接时3306要被明确的指定，此时web应用方也有一个端口被占用，这个端口不需要被明确的指定，是操作系统自动分配的。操作系统的端口数是有限的，一般缺省可能是1024，不同的操作系统会有所不同，每一个socket也是占用资源的，一般叫socket的资源描述符，这些资源对于操作系统来说也是有限的，linux下通过ulimit命令可以指定更多资源。
+
+
+
+
+
+？？？？？？？？结合之前有次看的公众号文章，我记得讲了ip，端口，能连多少个线程啥的，再看吧
+
+
+
+
+
+
+
+
+
+#### 数据库的提交与回滚
+
+
+
+STRUCT|java.sql.Struct|getStruct
+
+**事务**
+
+> 如果JDBC连接处于自动提交模式（默认情况下），那么每个SQL语句在完成后都会提交到数据库
+> 对于简单的应用程序可能没问题，但是有三个原因需要考虑是否关闭自动提交并管理自己的事务：
+>
+> - 提高性能
+> - 保证业务流程的完整性
+> - 使用分布式事务
+>
+> 事务能够控制何时将更改提交并应用于数据库。它将单个SQL语句或一组SQL语句视为一个逻辑单元，如果任何语句失败，则整个事务失败
+> 要启动手动事务支持，需调用Connection对象的setAutoCommit()方法。如果将布尔值false传给setAutoCommit(),则关闭自动提交，也可以传递一个true来重新打开它
+
+```
+connection.setAutoCommit(false);
+
+
+
+复制代码
+```
+
+**提交和回滚**
+
+> 完成更改后，若要提交更改，那么可调用connection对象的commit()方法
+
+```
+connection.commit();
+
+
+
+复制代码
+```
+
+> 如果要回滚数据库更新，使用以下代码：
+
+```
+connection.rollback();
+
+
+
+复制代码
+```
+
+> 以下示例展示了如果使用提交和回滚：
+
+```
+try{
+
+
+
+    connection.setAutoCommit(false);
+
+
+
+    Statement stmt = connection.createStatement();
+
+
+
+    String sql = "INSERT INTO Employees VALUES (123,'java');
+
+
+
+    stmt.executeUpdate(sql);
+
+
+
+    connection.commit();
+
+
+
+}catch(SQLException e){
+
+
+
+    connection.rollback();
+
+
+
+}finally{
+
+
+
+    //release resource
+
+
+
+}
+
+
+
+复制代码
+```
+
+**Savepoint**
+
+> 新的JDBC 3.0添加了Savepoint接口提供了额外的事务控制能力。大多数现代DBMS支持其环境中的保存点，
+> 设置Savepoint时，可以在事务中定义逻辑回滚点。如果在Savepoint之后发生错误，则可以使用回滚方法来撤销所有更改或仅保存保存点之后所做的更改。
+> Connection对象由两个新方法管理保存点：
+>
+> - Savepoint setSavepoint(String name)：定义新的保存点并返回该对象
+> - void releaseSavepoint(Savepoint savepoint)：删除保存点。
+>   有一个void rollback(Savepoint savepoint)方法，它将使用事务回滚到制定的保存点。
+
+```
+Savepoint savepoint = null;
+
+
+
+try{
+
+
+
+    connection.setAutoCommit(false);
+
+
+
+    Statement stmt = connection.createStatement();
+
+
+
+    String sql = "INSERT INTO Employees VALUES (123,'Java')";
+
+
+
+    stmt.executeUpdate(sql);
+
+
+
+    savepoint = connection.setSavepoint("Savepoint");
+
+
+
+    sql = "INSERT INTO Employees VALUES (456,'C++')";
+
+
+
+    stmt.executeUpdate(sql);
+
+
+
+    sql = "INSERT INTO Employees VALUES ('789','Python')";//error sql
+
+
+
+    stmt.executeUpdate(sql);
+
+
+
+    connection.commit();
+
+
+
+}catch(SQLException e){
+
+
+
+    if (savepoint == null){
+
+
+
+        connection.rollback();
+
+
+
+    }else{
+
+
+
+        connection.rollback(savepoint);
+
+
+
+        connection.commit();    
+
+
+
+    }
+
+
+
+}finally{
+
+
+
+    //release resource
+
+
+
+}
+
+
+
+复制代码
+```
+
+在这种情况下，第二条INSERT不会成功。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### 数据源
+
+
+
+1.什么是数据源？
+
+答：数据源定义的是连接到实际数据库的一条路径而已，数据源中并无真正的数据，它仅仅记录的是你连接到哪个数据库，以及如何连接的，如odbc数据源。也就是说数据源仅仅是数据库的连接名称，一个数据库可以有多个数据源连接。                                                                
+
+​    在Java语言中，DataSource对象就是一个代表数据源实体的对象。一个数据源就是一个用来存储数据的工具，它可以是复杂的大型企业级数据库，也可以是简单得只有行和列的文件。数据源可以位于在服务器端，也可以位于客服端。
+
+
+
+
+
+4.数据源与数据库连接池关系？
+
+答：我们通过第三方工具来使用数据源来实现对数据库数据操作。一个数据库连接池可以给它创建多个数据源，如一个人有别名；如果单纯使用jdbc连接数据库是web容器你要什么就去连什么。这样做没人看不耗内存，量大了你就死机。可以这样理解，数据源表示一个与数据库的连接（传统）或者表示很多与数据库的连接（使用数据库连接池）。数据源是用于访问连接池或多池的JNDI对象，多池的主要目的是提高可用性和在一组连接池间实现负载均衡。
+
+5.数据源与jndi关系？
+
+答：数据源是在JDBC 2.0中引入的一个概念。在JDBC 2.0扩展包中定义了javax.sql.DataSource接口来描述这个概念。如果用户希望建立一个数据库连接，通过查询在JNDI服务中的数据源，可以从数据源中获取相应的数据库连接。这样用户就只需要提供一个逻辑名称（Logic Name），而不是数据库登录的具体细节。即DataSource采用Java的JNDI技术，来获得DataSource对象的引用。当然各种web容器把DataSource作为一种可以配置的JNDI资源来处理如tomcat。生成DataSource对象的工厂为org.apache.commons.dbcp.BasicDataSourceFactory。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### 使用连接池的原因 【 详细版 】
+
+
+
+<img src="C:\Users\34893\Desktop\博客等展示相关\截图存储\JDBC\连接池与数据库连接.jpg" alt="连接池在数据库连接中的作用" style="zoom:80%;" />
+
+
+
+
+
+
+
+先看看连接的简介。
+
+连接
+当数据库服务器和客户端位于不同的主机时，就需要建立网络连接来进行通信。客户端必须使用数据库连接来发送命令和接收应答、数据。通过提供给客户端数据库的驱动指定连接字符串后，客户端就可以和数据库建立连接。查阅程序语言手册来获知通过何种方式使用短连接、长连接。
+
+短连接
+短连接是指程序和数据库通信时需要建立连接，执行操作后，连接关闭。短连接简单来说就是每一次操作数据库，都要打开和关闭数据库连接，基本步骤是：连接 -> 数据传输 -> 关闭连接
+在慢速网络下使用短连接，连接的开销会很大；在生产繁忙的系统中，连接也可能会受到系统端口数的限制，如果要每秒建立几千个连接，那么连接断开后，端口不会被马上回收利用，必须经历一个FIN阶段等待，直到可被回收利用为止，这样就可能会导致端口资源不够用。在Linux上，可以通过调整/proc/sys/net/ipv4/ip_local_port_range来扩大端口的使用范围；调整/proc/sys/net/ipv4/tcp_fin_timeout来减少回收延期（如果想在应用服务器上调整这个参数，一定要慎重！）。
+另外一个办法是主机使用多个IP地址。端口数的限制其实是基于同一个IP:PORT的，如果主机增加IP，MySQL就可以监听多个IP地址，客户端也可以选择连接某个IP:PORT，这样就增加端口资源。
+
+长连接
+长连接是指程序之间的连接在建立之后，就一直打开，被后续程序重用。使用长连接的初衷是减少连接的开销。当收到一个永久连接的请求时，检查是否已经存在一个相同的永久连接。存在则复用；不存在则重新建立一个新的连接。所谓相同的连接是指基本连接信息，即用户名、密码、主机及端口都相同。
+从客户端的角度来说，使用长连接有一个好处，可以不用每次创建新连接，若客户端对MySQL服务器的连接请求很频繁，永久连接将更加高效。对于高并发业务，如果可能会碰到连接的冲击，推荐使用长连接或连接池。
+
+从服务器的角度来看，它可以节省创建连接的开销，但维持连接也是需要内存的。如果滥用长连接的话，可能会使用过多的MySQL服务器连接。现代的操作系统可以拥有几千个MySQL连接，但很有可能绝大部分都是睡眠状态的，这样的工作方式不够高效，而且连接占据内存，也会导致内存的浪费。
+
+对于扩展性好的站点来说，其实大部分的访问并不需要连接数据库。如果用户需要频繁访问数据库，那么可能会在流量增大的时候产生性能问题，此时长短连接都是无法解决问题的，所以应该进行合理的设计和优化来避免性能问题。
+
+如果客户端和MySQL数据库之间有连接池或Proxy代理，一般在客户端推荐使用短连接。对于长连接的使用一定要慎重，不可滥用。如果没有每秒几百、上千的新连接请求，就不一定需要长连接，也无法从长连接中得到太多好处。在Java语言中，由于有连接池，如果控制得当，则不会对数据库有较大的冲击，但PHP的长连接可能导致数据库的连接数超过限制，或者占用过多的内存。
+
+
+
+
+
+
+
+
+
+
+
+
+
+一次创建，多次复用
+
+网络开销，数据库负载  降低
+
+响应时间较长及QPS较低；
+应用频繁的创建连接和关闭连接，导致临时对象较多，GC频繁；
+在关闭连接后，会出现大量TIME_WAIT 的TCP状态(在2个MSL之后关闭)。
+
+
+
+
+
+
+
+
+
+<img src="C:\Users\34893\Desktop\博客等展示相关\截图存储\JDBC\数据库连接流程.jpg" alt="数据库连接的流程 ：TCP建立连接的三次握手；MySQL认证的三次握手；真正的SQL执行；MySQL的关闭；TCP的四次挥手关闭" style="zoom:67%;" />
+
+
+
+
+
+连接角度看 JDBC
+
+上图大致画出以访问MySQL为例，执行一条 SQL 命令，不使用连接池的情况下，需要经过哪些流程。
+
+TCP建立连接的三次握手；
+MySQL认证的三次握手；
+真正的SQL执行；
+MySQL的关闭；
+TCP的四次握手关闭；
+为了执行一条SQL，有很多网络交互。
+
+
+
+
+
+
+
+
+
+连接池
+数据库连接池是一些网络代理服务或应用服务器实现的特性，实现一个持久连接的“池”，允许其他程序、客户端来连接，这个连接池将被所有连接的客户端共享使用，连接池可以加速连接，也可以减少数据库连接，降低数据库服务器的负载。
+
+持久连接和连接池的区别
+长连接是一些驱动、驱动框架、ORM工具的特性，由驱动来保持连接句柄的打开，以便后续的数据库操作可以重用连接，从而减少数据库的连接开销。而连接池是应用服务器的组件，它可以通过参数来配置连接数、连接检测、连接的生命周期等。
+
+如果连接池或长连接使用的连接数很多，有可能会超过数据库实例的限制，那么就需要留意连接相关的设置，比如连接池的最小、最大连接数设置，以及php-fpm的进程个数等，否则程序将不能申请新的连接。
+
+最小连接数和最大连接数的设置要考虑到以下几个因素：
+最小连接数：连接池一直保持的数据库连接，如果应用程序对数据库连接的使用量不大，将会有大量的数据库连接资源被浪费；
+最大连接数：连接池能申请的最大连接数，如果数据库连接请求超过次数，后面的数据库连接请求将被加入到等待队列中，这会影响以后的数据库操作；
+如果最小连接数与最大连接数相差很大：那么最先连接请求将会获利，之后超过最小连接数量的连接请求等价于建立一个新的数据库连接。不过这些大于最小连接数的数据库连接在使用完不会马上被释放，将被放到连接池中等待重复使用或是空间超时后被释放。
+
+
+
+具体的结合项目和经验来，文末的《 java中几个主流的数据库连接池 》一文就有过一个大概的估算，感兴趣可以去翻阅一下，截取一段：
+
+​		” 具体而言在中型偏小型的项目--给个数值把，用户数300到3000，数据量100万到1亿---中,建议weblogic设置为最大和最小都是200，websphere最小200最大300，前提是2者设置的最小内存要在1G以上，当然如果条件允许内存越大越好，不过32位机内存1.5G的限制是一定的（64位嘛我愿意设个4G内存过来，速度提升的感觉很爽啊）。这个数字出来以后相信会有不少问题要抛过来，我一一谈一下自己的体验和想法吧
+​		1 为什么是200或300而不是更高？
+回答： 再分配多了效果也不大了，一个是应用服务器维持这个连接数需要内存支持，刚才说了32位的机器只能支持到1.5G，并且维护大量的连接进行分配使用对cpu也是一个不小的负荷，因此不宜太大。
+​		2 为什么不小一点？
+回答：  如果太小，那么在上述规模项目的并发量以及数据量上来以后会造成排队现象，系统会变慢，数据库连接会经常打开和关闭，性能上有压力，用户体验也不好。
+​		3 为什么weblogic最小最大都一样，而websphere不一样
+回答：  其实和分配内存的最小最大值的情况一样，一般都推荐2个值应该一致，都放在内存里就好了嘛。但是ibm官方推荐2个值要有区别---官方说法还是要听的
+​		4 其他开源连接池的分配方案还没说呢？
+回答： 开源的个人认为到100就可以了，再高他也不会太稳定，当然1G的最小内存是一定要给tomcat分的 “
+
+
+
+
+
+
+
+池化
+连接池类似于线程池或者对象池，数据库连接池为系统的运行带来以下优势：
+
+昂贵的数据库连接资源得到重用；
+减少数据库连接建立和释放的时间开销，提高系统响应速度；
+统一的数据库连接管理，避免连接资源的泄露。
+连接池负责：连接建立、连接释放、连接管理、连接分配。
+
+数据库连接池运行机制：
+系统初始化时创建连接池，程序操作数据库时从连接池中获取空闲连接，程序使用完毕将连接归还到连接池中，系统退出时，断开所有数据库连接并释放内存资源。
+
+数据库连接池生命周期
+数据库每个读写操作需要一个连接。数据库连接调用流如下图：
+
+调用流程为：
+
+应用数据层向DataSource请求数据库连接
+DataSource使用数据库Driver打开数据库连接
+创建数据库连接，打开TCP socket
+应用读/写数据库
+如果该连接不再需要就关闭连接
+关闭socket
+为什么连接池快很多？
+分析池连接管理的调用流程：
+
+无论何时请求一个连接，池数据源会从可用的连接池获取新连接。仅当没有可用的连接而且未达到最大的连接数时连接池将创建新的连接。close()方法把连接返回到连接池而不是真正地关闭它。
+
+重用数据库连接最明显的原因：
+
+减少应用程序和数据库管理系统创建/销毁TCP连接的OS I/O开销
+减少JVM对象垃圾
+缓冲安全：连接池是即将到来的连接请求的有界缓冲区。如果出现瞬间流量尖峰，连接池会平缓这一变化，而不是使所有可用数据库资源趋于饱和。
+等待步骤和超时机制，可有效防止数据库服务器过载。如果一个应用消耗太多数据库流量，为防止它将数据库服务器压垮，连接池将减少它对数据库的使用。
+配置
+连接池配置大体可以分为基本配置、关键配置、性能配置等主要配置。
+
+基本配置
+基本配置是指连接池进行数据库连接的四个基本必需配置：传递给JDBC驱动的用于连接数据库的用户名、密码、URL以及驱动类名。
+在Druid连接池的配置中，driverClassName可配可不配，如果不配置会根据url自动识别dbType(数据库类型)，然后选择相应的driverClassName。
+
+关键配置
+为了发挥数据库连接池的作用，在初始化时将创建一定数量的数据库连接放到连接池中，这些数据库连接的数量是由最小数据库连接数来设定的。无论这些数据库连接是否被使用，连接池都将一直保证至少拥有这么多的连接数量。连接池的最大数据库连接数量限定了这个连接池能占有的最大连接数，当应用程序向连接池请求的连接数超过最大连接数量时，这些请求将被加入到等待队列中。
+最小连接数:是数据库一直保持的数据库连接数，所以如果应用程序对数据库连接的使用量不大，将有大量的数据库资源被浪费。
+初始化连接数：连接池启动时创建的初始化数据库连接数量。
+最大连接数：是连接池能申请的最大连接数，如果数据库连接请求超过此数，后面的数据库连接请求被加入到等待队列中。
+最大等待时间：当没有可用连接时，连接池等待连接被归还的最大时间，超过时间则抛出异常，可设置参数为0或者负数使得无限等待(根据不同连接池配置)。
+
+数据库连接池在初始化的时候会创建initialSize个连接，当有数据库操作时，会从池中取出一个连接。如果当前池中正在使用的连接数等于maxActive，则会等待一段时间，等待其他操作释放掉某一个连接，如果这个等待时间超过maxWait，则会报错；如果当前正在使用的连接数没有达到maxActive，则判断当前是否空闲连接，如果有则直接使用空闲连接，如果没有则新建立一个连接。在连接使用完毕后，不是将其物理连接关闭，而是将其放入池中等待其他操作复用。
+
+性能配置
+预缓存设置：PSCache，对支持游标的数据库性能提升巨大，比如说oracle。JDBC的标准参数，用以控制数据源内加载的PreparedStatements数量。但由于预缓存的statements属于单个connection而不是整个连接池，所以设置这个参数需要考虑到多方面的因素。
+单个连接拥有的最大缓存数：要启用PSCache，必须配置大于0，当大于0时，poolPreparedStatements自动触发修改为true。在Druid中，不会存在Oracle下PSCache占用内存过多的问题，可以把这个数值配置大一些，比如说100
+
+连接有效性检测设置：连接池内部有机制判断，如果当前的总的连接数少于miniIdle，则会建立新的空闲连接，以保证连接数得到miniIdle。如果当前连接池中某个连接在空闲timeBetweenEvictionRunsMillis时间后任然没有使用，则被物理性的关闭掉。有些数据库连接的时候有超时限制（mysql连接在8小时后断开），或者由于网络中断等原因，连接池的连接会出现失效的情况，这时候设置一个testWhileIdle参数为true，可以保证连接池内部定时检测连接的可用性，不可用的连接会被抛弃或者重建，最大情况的保证从连接池中得到的Connection对象是可用的。当然，为了保证绝对的可用性，你也可以使用testOnBorrow为true（即在获取Connection对象时检测其可用性），不过这样会影响性能。
+
+超时连接关闭设置：removeAbandoned参数，用来检测当前使用的连接是否发生连接泄露，所以在代码内部就假定如果建立连接的时间很长，则将其认定为泄露，继而强制将其关闭掉。
+
+
+
+
+
+#### 连接池的常用配置项
+
+dataSourceClassName
+接收字符串值，默认为空。JDBC driver 提供的 DataSource 类名。不同的 JDBC driver 会有其相对应的类名（不支持 XA data sources）。如果使用了 jdbcUrl 配置项则不需要配置此项。
+jdbcUrl
+接收字符串值，默认为空。此属性将使 HikariCP 使用“基于驱动管理器”（DriverManager-based）的配置。由于多种原因，我们认为基于数据源（DataSource-based）的配置是更好的选择。但对许多部署实例来讲却也区别不大。当使用此属性来配置“旧”的 JDBC 驱动时，你可能也需要设置 driverClassName 属性，但可以试一试不设置是否能行得通。
+username / password
+接收字符串值，默认为空。对 DataSource 来讲，username和password仅会在调用 DataSource.getConnection(username, password) 时用到。但在使用基于驱动（Driver-based）配置时，HikariCP 会使用 username 的值去设置调用 DriverManager.getConnection(jdbcUrl, props) 方法时传入的 Properties 中的 user 属性。如果并不是你想要的，你需要避免执行这个方法。
+autoCommit
+布尔值，默认为 true。控制从连接池中返回的连接的 auto-commit 行为。通常情况下会设置为 false。比如使用Spring 统一管理数据库事务，这时就需要禁用 auot-commit。
+connectionTimeout
+接收数值，默认为30000（30秒），最小可接收值为250ms。设置客户端获取连接前等待的最大毫秒数，即超时时间。如果超过了这个时间后仍然没有可用的数据库连接返回，SqlException 则会被抛出。
+idleTimeout
+接收数值，默认为600000（10分），最小可接收值为10000（10秒）。此属性控制一个连接保持空闲状态的最大超时时间。只有当 minimumIdle 小于 maximumPoolSize 时此属性才会生效。一个数据库连接是否退化为空闲状态需要平均15秒+，最多30秒+。设置0表示空闲的连接永远不会从连接池中销毁。
+maxLifetime
+接收数值，默认为1800000（30分）。此属性为单个连接在连接池中的最长生命周期时间。连接只有在被关闭后才会被移除。强烈建议设置此属性，并且至少应该比任何数据库或组件强制要求的连接时间少30秒。此属性设置为0表示没有最长生命周期时间。
+connectionTestQuery
+接收字符串值，默认为空。如果数据库驱动支持 JDBC4，则强烈建议不要设置此属性。此属性是为那些不支持 JDBC4 Connection.isValid() API 的老旧数据库准备的。这条查询语句会在连接从连接池返回给客户端之前执行，用以验证返回的数据库连接仍然可用。再次重申，在不设置此属性时尝试启动数据库连接池，如果你的数据库驱动不支持 JDBC4，HikariCP 会记录下错误信息。
+在 c3p0 中，这个属性的名称是 preferredTestQuery；在 tmocat-jdbc 中，这个属性的名称叫做 validationQuery。属性值一般设置为 “Select 1”。
+minimumIdle
+接收数值，默认和 maximumPoolSize 相同。设置 HikariCP 在连接池中保存的最少空闲连接数。如果空闲连接数少于此属性值，HikariCP 会尽力快速高效的增加连接。不过，为了最高性能和峰值弹性需求，我们建议不要设置此属性，而是让 HikariCP 作为一个固定大小的连接池。
+maximumPoolSize
+接收数值，默认为10。设置 HikariCP 在连接池中保存的最多连接数，包括空闲的和正在使用的连接。此属性的合理值应该由程序的运行环境决定。当连接池中没有空闲连接，调用 getConnection() 会一直阻塞直到超过 connectionTimeout 设置的超时时间。
+poolName
+接收字符串值，默认值为自动生成。此属性为连接池设置用户自定义的名称，并会在日志中显示。设置连接池名称主要是为了配合 JMX 在控制台日志中区分不同的连接池和连接池配置。注意，通过我们实践发现，如果需要配合使用 JMX，最好设置自定义的连接池名称。使用默认的自动生成的连接池名称有可能会出现意想不到的问题。
+prepStmtCacheSize
+接收数值，默认为25。此属性设置 MySQL 驱动在每个连接会缓存的 Prepared Statement 数量。推荐设为250到500之间。
+prepStmtCacheSqlLimit
+接收数值。此属性为 MySQL 驱动缓存的 Prepared SQL statement 的最大长度。MySQL 默认为256。此默认值远远小于生成的语句长度，推荐将其设置为2048。
+cachePrepStmts
+布尔值，默认为 false。打开预处理语句缓存。如果为 false，prepStmtCacheSize 和 prepStmtCacheSqlLimit 都不会起作用。
+useServerPrepStmts
+布尔值。新版的 MySQL 支持服务端预处理语句，这可以极大的提高性能。新版MySQL建议设置为 true。
+spring boot with HikariCP
+initialSize：默认值是 0，连接池创建连接的初始连接数目。
+minIdle : 默认是 0，连接数中最小空闲连接数。
+maxIdle : 默认是 8，连接池中最大空闲连接数。
+maxActive : 默认值是 8, 连接池中同时可以分派的最大活跃连接数。
+maxWait : 默认值是无限大，当连接池中连接已经用完，等待建立一个新连接的最大毫秒数 ( 在抛异常之前 )。
+validationQuery : 一条 sql 语句，用来验证数据库连接是否正常。这条语句必须是一个查询模式，并至少返回一条数据。一般用“ select 1 ”。
+minEvictableIdleTimeMilis : 默认值是 1000 * 60 * 30(30 分钟 ) 单位毫秒，连接池中连接可空闲的时间。
+timeBetweenEvictionRunsMilis : 默认值是 -1 ，每隔一段多少毫秒跑一次回收空闲线程的线程。
+对于minEvictableIdleTimeMilis、timeBetweenEvictionRunsMilis这两个参数，timeBetweenEvictionRunsMilis必须大于1且小于minEvictableIdleTimeMilis，建议是minEvictableIdleTimeMilis的五分之一或十分之一。
+
+
+
+
+
+
+
+
+
+
+
+
+c3p0-config.xml
+
+```xml
+<c3p0-config>
+  <named-config name="helloc3p0"> 
+
+  	<!-- 连接数据库的四个字符串 -->
+  	<property name="driverClass">com.mysql.jdbc.Driver</property>
+  	<property name="jdbcUrl">jdbc:mysql://127.0.0.1:3306/test</property>
+  	<property name="user">root</property>
+  	<property name="password">123456</property>
+
+  	<!-- 若连接池满了一次增长几个 -->
+    <property name="acquireIncrement">5</property>
+    
+
+    <!-- 连接池初始大小 -->
+    <property name="initialPoolSize">10</property>
+    
+    <!-- 连接池中最小连接数 -->
+    <property name="minPoolSize">5</property>
+    
+    <!-- 连接池中最大连接数 -->
+    <property name="maxPoolSize">10</property>
+     
+    <!-- 整个连接池中最多管理的 Statement 的个数 -->
+    <property name="maxStatements">10</property> 
+    
+    <!-- 连接池中每个连接最多管理的 Statement 的个数 -->
+    <property name="maxStatementsPerConnection">2</property>
+
+  </named-config>
+</c3p0-config>
+```
+
+注意：配置文件的  <named-config name="helloc3p0"> 的名字要和DataSource ds = new ComboPooledDataSource("helloc3p0");要传入的参数一致。
+
+
+
+c3p0通过c3p0-config.xml文件进行配置
+关于通过配置文件进行配置的话，
+
+这边需要把xml文件方法同src文件夹下，c3p0会扫描文件进行相关的配置。
+在Maven依赖中要加入c3p0和mysql-connector-java依赖，版本号一定要写。
+废话不多说，下面是c3p0-config.xml文件的代码
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<c3p0-config>
+    <!-- 默认配置，如果没有指定则使用这个配置 -->
+    <default-config>
+        <property name="user">zhanghanlun</property>
+        <property name="password">123456</property>
+        <property name="jdbcUrl">jdbc:mysql://localhost:3306/zhanghanlun</property>
+        <property name="driverClass">com.mysql.jdbc.Driver</property>
+        <property name="checkoutTimeout">30000</property>
+        <property name="idleConnectionTestPeriod">30</property>
+        <property name="initialPoolSize">3</property>
+        <property name="maxIdleTime">30</property>
+        <property name="maxPoolSize">100</property>
+        <property name="minPoolSize">2</property>
+        <property name="maxStatements">200</property>
+    </default-config>
+    <!-- 命名的配置,可以通过方法调用实现 -->
+    <named-config name="test">
+        <property name="user">zhanghanlun</property>
+        <property name="password">123456</property>
+        <property name="jdbcUrl">jdbc:mysql://localhost:3306/zhanghanlun</property>
+        <property name="driverClass">com.mysql.jdbc.Driver</property>
+        <!-- 如果池中数据连接不够时一次增长多少个 -->
+        <property name="acquireIncrement">5</property>
+        <!-- 初始化数据库连接池时连接的数量 -->
+        <property name="initialPoolSize">20</property>
+        <!-- 数据库连接池中的最大的数据库连接数 -->
+        <property name="maxPoolSize">25</property>
+        <!-- 数据库连接池中的最小的数据库连接数 -->
+        <property name="minPoolSize">5</property>
+    </named-config>
+</c3p0-config>
+```
+
+
+java代码对应如下：
+
+    //加载名字为“test”的配置文件
+    private static ComboPooledDataSource dataSource = new ComboPooledDataSource("test");
+    /**
+     * 获取Connection连接
+     * @return
+     */
+    public static Connection getConnection(){
+        Connection conn = null;
+        try {
+            conn = dataSource.getConnection();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return conn;
+    }
+
+
+是不是代码简洁了很多，所以在我们通常使用配置文件来创建数据库的连接池。
+
+c3p0常用配置参数介绍
+在前面的c3p0的相关配置中，我们看到了c3p0的配置参数，这里我们介绍几个常用的c3p0的配置参数
+
+最基础的参数配置：
+driverClass : 数据库驱动（比如mysql，或者oracle数据库的驱动）
+jdbcUrl: jdbc数据库连接地址（例如jdbc:mysql://localhost:3306/zhanghanlun）
+user：数据库用户名
+password:和数据库用户名对应的数据库密码
+基础的参数配置
+参数	默认值	解释
+initialPoolSize	3	连接池初始化时创建的连接数（介于maxPoolSize和minPoolSize之间）
+maxPoolSize	15	连接池中拥有的最大连接数，如果获得新连接时会使连接总数超过这个值则不会再获取新连接，而是等待其他连接释放，所以这个值有可能会设计地很大
+minPoolSize	3	连接池保持的最小连接数，后面的maxIdleTimeExcessConnections跟这个配合使用来减轻连接池的负载
+acquireIncrement	3	连接池在无空闲连接可用时一次性创建的新数据库连接数
+管理池大小和连接时间的配置
+参数	默认值	解释
+maxIdleTime	0	连接的最大空闲时间，如果超过这个时间，某个数据库连接还没有被使用，则会断开掉这个连接如果为0，则永远不会断开连接
+maxConnectorAge	0	连接的最大绝对年龄，单位是秒，0表示绝对年龄无限大
+maxIdleTimeExcessConnection	0	单位秒，为了减轻连接池的负载，当连接池经过数据访问高峰创建了很多连接，但是后面连接池不需要维护这么多连接，必须小于maxIdleTime.配置不为0，则将连接池的数量保持到minPoolSize
+配置连接测试
+参数	默认值	解释
+automaticTestTable	null	如果不为null，c3p0将生成指定名称的空表，使用该表来测试连接
+connectionTesterClassName	com.mchange.v2.c3p0.impl.DefaultConnectionTester	-通过实现ConnectionTester或QueryConnectionTester的类来测试连接。类名需制定全路径。
+idleConnectionTestPeriod	0	每个几秒检查所有连接池中的空闲连接
+preferredTestQuery	null	定义所有连接测试都执行的测试语句。在使用连接测试的情况下这个一显著提高测试速度。注意： 测试的表必须在初始数据源的时候就存在
+testConnectionOnCheckin	false	如果设为true那么在取得连接的同时将校验连接的有效性
+testConnectionOnCheckout	false	如果为true，在连接释放的同事将校验连接的有效性。
+在这几个参数中，idleConnectionTestPeriod、testConnectionOnCheckout和testConnectuonOnCheckin控制什么时候连接将被校验检测。automaticTestTable、connectionTesterClassName和perferedTestQuery控制连接将怎么样被检测。
+
+配置语句池
+参数	默认值	解释
+maxStatements	0	JDBC的标准参数，用以控制数据源内加载d的PreparedStatements数量
+maxStatementsPerConnection	0	maxStatementsPerConnection定义了连接池内单个连接所拥有的最大缓存statements数
+statementCacheNumDeferredCloseThreads	0	如果大于零，则语句池将延迟物理close()缓存语句直到其父连接未被任何客户端使用，或者在其内部（例如在测试中）由池本身使用。
+配置数据库的中断恢复
+参数	默认值	解释
+acquireRetryAttempts	30	定义在从数据库获取新连接失败后重复尝试的次数
+acquireRetryDelay	1000	两次连接间隔时间，单位毫秒
+breakAfterAcquireFailure	false	获取连接失败将会引起所有等待连接池来获取连接的线程抛出异常。但是数据源仍有效 保留，并在下次调用getConnection()的时候继续尝试获取连接。如果设为true，那么在尝试 获取连接失败后该数据源将申明已断开并永久关闭
+配置未解决的事务处理
+参数	默认值	解释
+autoCommitOnClose	false	连接关闭时默认将所有未提交的操作回滚。如果为true，则未提交设置为待提交而不是回滚。
+forceIgnoreUnresolvedTransactions	false	官方文档建议这个不要设置为true
+其他数据源配置
+参数	默认值	解释
+checkoutTimeout	0	当连接池用完时客户端调用getConnection()后等待获取新连接的时间，超时后将抛出SQLException,如设为0则无限期等待。单位毫秒。
+factoryClassLocation	0	指定c3p0 libraries的路径，如果（通常都是这样）在本地即可获得那么无需设置，默认null即可
+numHelperThreads	3	c3p0是异步操作的，缓慢的JDBC操作通过帮助进程完成。扩展这些操作可以有效的提升性能通过多线程实现多个操作同时被执行
+————————————————c3p0数据库连接池配置总结
+
+
+
+
+
+
+
+
+
+```xml
+本人使用的C3P0的jar包是：c3p0-0.9.1.jar
+
+<bean id = "dataSource" class = "com.mchange.v2.c3p0.ComboPooledDataSource">
+
+<!--当连接池中的连接耗尽的时候c3p0一次同时获取的连接数。Default: 3 -->
+<property name="acquireIncrement">3</property>
+
+<!--定义在从数据库获取新连接失败后重复尝试的次数。Default: 30 -->
+<property name="acquireRetryAttempts">30</property>
+
+<!--两次连接中间隔时间，单位毫秒。Default: 1000 -->
+<property name="acquireRetryDelay">1000</property>
+
+<!--连接关闭时默认将所有未提交的操作回滚。Default: false -->
+<property name="autoCommitOnClose">false</property>
+
+<!--c3p0将建一张名为Test的空表，并使用其自带的查询语句进行测试。如果定义了这个参数那么
+属性preferredTestQuery将被忽略。你不能在这张Test表上进行任何操作，它将只供c3p0测试
+使用。Default: null-->
+<property name="automaticTestTable">Test</property>
+
+<!--获取连接失败将会引起所有等待连接池来获取连接的线程抛出异常。但是数据源仍有效
+保留，并在下次调用getConnection()的时候继续尝试获取连接。如果设为true，那么在尝试
+获取连接失败后该数据源将申明已断开并永久关闭。Default: false-->
+<property name="breakAfterAcquireFailure">false</property>
+
+<!--当连接池用完时客户端调用getConnection()后等待获取新连接的时间，超时后将抛出
+SQLException,如设为0则无限期等待。单位毫秒。Default: 0 -->
+<property name="checkoutTimeout">100</property>
+
+<!--通过实现ConnectionTester或QueryConnectionTester的类来测试连接。类名需制定全路径。
+Default: com.mchange.v2.c3p0.impl.DefaultConnectionTester-->
+<property name="connectionTesterClassName"></property>
+
+<!--指定c3p0 libraries的路径，如果（通常都是这样）在本地即可获得那么无需设置，默认null即可
+Default: null-->
+<property name="factoryClassLocation">null</property>
+
+<!--Strongly disrecommended. Setting this to true may lead to subtle and bizarre bugs.
+（文档原文）作者强烈建议不使用的一个属性-->
+<property name="forceIgnoreUnresolvedTransactions">false</property>
+
+<!--每60秒检查所有连接池中的空闲连接。Default: 0 -->
+<property name="idleConnectionTestPeriod">60</property>
+
+<!--初始化时获取三个连接，取值应在minPoolSize与maxPoolSize之间。Default: 3 -->
+<property name="initialPoolSize">3</property>
+
+<!--最大空闲时间,60秒内未使用则连接被丢弃。若为0则永不丢弃。Default: 0 -->
+<property name="maxIdleTime">60</property>
+
+<!--连接池中保留的最大连接数。Default: 15 -->
+<property name="maxPoolSize">15</property>
+
+<!--JDBC的标准参数，用以控制数据源内加载的PreparedStatements数量。但由于预缓存的statements
+属于单个connection而不是整个连接池。所以设置这个参数需要考虑到多方面的因素。
+如果maxStatements与maxStatementsPerConnection均为0，则缓存被关闭。Default: 0-->
+<property name="maxStatements">100</property>
+
+<!--maxStatementsPerConnection定义了连接池内单个连接所拥有的最大缓存statements数。Default: 0 -->
+<property name="maxStatementsPerConnection"></property>
+
+<!--c3p0是异步操作的，缓慢的JDBC操作通过帮助进程完成。扩展这些操作可以有效的提升性能
+通过多线程实现多个操作同时被执行。Default: 3-->
+<property name="numHelperThreads">3</property>
+
+<!--当用户调用getConnection()时使root用户成为去获取连接的用户。主要用于连接池连接非c3p0
+的数据源时。Default: null-->
+<property name="overrideDefaultUser">root</property>
+
+<!--与overrideDefaultUser参数对应使用的一个参数。Default: null-->
+<property name="overrideDefaultPassword">password</property>
+
+<!--密码。Default: null-->
+<property name="password"></property>
+
+<!--定义所有连接测试都执行的测试语句。在使用连接测试的情况下这个一显著提高测试速度。注意：
+测试的表必须在初始数据源的时候就存在。Default: null-->
+<property name="preferredTestQuery">select id from test where id=1</property>
+
+<!--用户修改系统配置参数执行前最多等待300秒。Default: 300 -->
+<property name="propertyCycle">300</property>
+
+<!--因性能消耗大请只在需要的时候使用它。如果设为true那么在每个connection提交的
+时候都将校验其有效性。建议使用idleConnectionTestPeriod或automaticTestTable
+等方法来提升连接测试的性能。Default: false -->
+<property name="testConnectionOnCheckout">false</property>
+
+<!--如果设为true那么在取得连接的同时将校验连接的有效性。Default: false -->
+<property name="testConnectionOnCheckin">true</property>
+
+<!--用户名。Default: null-->
+<property name="user">root</property>
+
+在Hibernate（spring管理）中的配置：
+<bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource" destroy-method="close">
+   <property name="driverClass"><value>oracle.jdbc.driver.OracleDriver</value></property>
+   <property name="jdbcUrl"><value>jdbc:oracle:thin:@localhost:1521:Test</value></property>
+   <property name="user"><value>Kay</value></property>
+   <property name="password"><value>root</value></property>
+  <!--连接池中保留的最小连接数。-->            
+    <property name="minPoolSize" value="10" />        
+    <!--连接池中保留的最大连接数。Default: 15 -->         
+    <property name="maxPoolSize" value="100" />        
+    <!--最大空闲时间,1800秒内未使用则连接被丢弃。若为0则永不丢弃。Default: 0 -->               
+    <property name="maxIdleTime" value="1800" />        
+    <!--当连接池中的连接耗尽的时候c3p0一次同时获取的连接数。Default: 3 -->               
+    <property name="acquireIncrement" value="3" />        
+    <property name="maxStatements" value="1000" />         
+    <property name="initialPoolSize" value="10" />          
+    <!--每60秒检查所有连接池中的空闲连接。Default: 0 -->       
+    <property name="idleConnectionTestPeriod" value="60" />          
+    <!--定义在从数据库获取新连接失败后重复尝试的次数。Default: 30 -->       
+    <property name="acquireRetryAttempts" value="30" />         
+    <property name="breakAfterAcquireFailure" value="true" />             
+    <property name="testConnectionOnCheckout" value="false" />
+</bean>
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+DBCP连接池的具体参数如下（其他各种连接池的配置参数大同小异，需要区别对待）：
+
+initialSize：初始连接数，第一次getConnection的，而不是应用启动时。初始值可以设置为并发量的历史平均值；
+minIdle：最小保留的空闲连接数。DBCP会在后台开启一个回收空闲连接的线程，当该线程进行空闲连接回收的时候，会保留minIdle个连接数。一般设置为5，并发量实在很小可以设置为1.
+maxIdle：最大保留的空闲连接数，按照业务并发高峰设置。比如并发高峰为20，那么当高峰过去后，这些连接不会马上被回收，如果过一小段时间又来一个高峰，那么连接池就可以复用这些空闲连接而不需要频繁创建和关闭连接。
+maxActive：最大活跃连接数，按照可以接受的并发极值设置。比如单机并发量可接受的极值是100，那么这个maxActive设置成100后，就只能同时为100个请求服务，多余的请求会在最大等待时间之后被抛弃。这个值必须设置，可以防止恶意的并发攻击，保护数据库。
+maxWait：获取连接的最大等待时间，建议设置的短一点，比如3s，这样可以让请求快速失败，因为一个请求在等待获取连接的时候，线程是不可以被释放的，而单机的线程并发量是有限的，如果这个时间设置的过长，比如网上建议的60s，那么这个线程在这60s内是无法被释放的，只要这种请求一多，应用的可用线程就少了，服务就变得不可用了。
+minEvictableIdleTimeMillis：连接保持空闲而不被回收的时间，默认30分钟。
+validationQuery：检测连接是否有效的sql语句，建议设置；
+testOnBorrow：申请连接的时候对连接进行检测，不建议开启，严重影响性能；
+testOnReturn：归还连接的时候对连接进行检测，不建议开启，严重影响性能；
+testWhileIdle：开启以后，后台清理连接的线程会没隔一段时间对空闲连接进行validateObject，如果连接失效则会进行清除，不影响性能，建议开启；
+numTestsPerEvictionRun：代表每次检查链接的数量，建议设置和maxActive一样大，这样每次可以有效检查所有的链接；
+预热连接池：对于连接池，建议在启动应用的时候进行预热，在还未对外提供访问之前进行简单的sql查询，让连接池充满必要的连接数。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### 有关于数据库连接池的连接数选择，注意这篇文章好像涉及线程池，而这有啥关系吗？底层原理？
+
+
+
+直接把结论附在这里，加个网址链接，不要搞这么多乱七八糟的东西
+
+
+
+
+
+数据库连接池的配置是开发者们常常搞出坑的地方，在配置数据库连接池时，有几个可以说是和直觉背道而驰的原则需要明确。
+
+1万并发用户访问
+
+想象你有一个网站，压力虽然还没到Facebook那个级别，但也有个1万上下的并发访问——也就是说差不多2万左右的TPS。那么这个网站的数据库连接池应该设置成多大呢？结果可能会让你惊讶，因为这个问题的正确问法是：
+
+- “这个网站的数据库连接池应该设置成多**小**呢？”
+
+下面这个视频是Oracle Real World Performance Group发布的，请先看完：
+ [http://www.dailymotion.com/video/x2s8uec](https://link.jianshu.com?t=http://www.dailymotion.com/video/x2s8uec)
+
+（因为这视频是英文解说且没有字幕，我替大家做一下简单的概括：）
+ 视频中对Oracle数据库进行压力测试，9600并发线程进行数据库操作，每两次访问数据库的操作之间sleep 550ms，一开始设置的中间件线程池大小为2048：
+
+![img](https:////upload-images.jianshu.io/upload_images/4840514-3066d27acc815cda.png?imageMogr2/auto-orient/strip|imageView2/2/w/374/format/webp)
+
+初始的配置
+
+压测跑起来之后是这个样子的：
+
+![img](https:////upload-images.jianshu.io/upload_images/4840514-291ff1430a04c50b.png?imageMogr2/auto-orient/strip|imageView2/2/w/393/format/webp)
+
+2048连接时的性能数据
+
+每个请求要在连接池队列里等待33ms，获得连接后执行SQL需要77ms
+
+此时数据库的等待事件是这个熊样的：
+
+![img](https:////upload-images.jianshu.io/upload_images/4840514-4d83ef1a5053dd2b.png?imageMogr2/auto-orient/strip|imageView2/2/w/393/format/webp)
+
+各种buffer busy waits
+
+各种buffer busy waits，数据库CPU在95%左右（这张图里没截到CPU）
+
+接下来，把中间件连接池减到1024（并发什么的都不变），性能数据变成了这样：
+
+![img](https:////upload-images.jianshu.io/upload_images/4840514-4cd73c3cc05a86d7.png?imageMogr2/auto-orient/strip|imageView2/2/w/396/format/webp)
+
+连接池降到1024后
+
+获取链接等待时长没怎么变，但是执行SQL的耗时减少了。
+ 下面这张图，上半部分是wait，下半部分是吞吐量
+
+![img](https:////upload-images.jianshu.io/upload_images/4840514-3aca30b085e4c525.png?imageMogr2/auto-orient/strip|imageView2/2/w/175/format/webp)
+
+wait和吞吐量
+
+能看到，中间件连接池从2048减半之后，吐吞量没变，但wait事件减少了一半。
+
+接下来，把数据库连接池减到96，并发线程数仍然是9600不变。
+
+![img](https:////upload-images.jianshu.io/upload_images/4840514-35053a5c85c85df4.png?imageMogr2/auto-orient/strip|imageView2/2/w/522/format/webp)
+
+96个连接时的性能数据
+
+队列平均等待1ms，执行SQL平均耗时2ms。
+
+![img](https:////upload-images.jianshu.io/upload_images/4840514-039bb76eaf64cd32.png?imageMogr2/auto-orient/strip|imageView2/2/w/218/format/webp)
+
+image.png
+
+wait事件几乎没了，吞吐量上升。
+
+**没有调整任何其他东西，仅仅只是缩小了中间件层的数据库连接池，就把请求响应时间从100ms左右缩短到了3ms。**
+
+But why?
+
+为什么nginx只用4个线程发挥出的性能就大大超越了100个进程的Apache HTTPD？回想一下计算机科学的基础知识，答案其实是很明显的。
+
+即使是单核CPU的计算机也能“同时”运行数百个线程。但我们都[应该]知道这只不过是操作系统用时间分片玩的一个小把戏。一颗CPU核心同一时刻只能执行一个线程，然后操作系统切换上下文，核心开始执行另一个线程的代码，以此类推。给定一颗CPU核心，其顺序执行**A**和**B**永远比通过时间分片“同时”执行**A**和**B**要快，这是一条计算机科学的基本法则。一旦线程的数量超过了CPU核心的数量，再增加线程数系统就只会更慢，而不是更快。
+
+这*几乎*就是真理了……
+
+有限的资源
+
+上面的说法只能说是接近真理，但还并没有这么简单，有一些其他的因素需要加入。当我们寻找数据库的性能瓶颈时，总是可以将其归为三类：*CPU、磁盘、网络*。把*内存*加进来也没有错，但比起*磁盘*和*网络*，内存的带宽要高出好几个数量级，所以就先不加了。
+
+如果我们无视*磁盘*和*网络*，那么结论就非常简单。在一个8核的服务器上，设定连接/线程数为8能够提供最优的性能，再增加连接数就会因上下文切换的损耗导致性能下降。数据库通常把数据存储在磁盘上，磁盘又通常是由一些旋转着的金属碟片和一个装在步进马达上的读写头组成的。读/写头同一时刻只能出现在一个地方，然后它必须“寻址”到另外一个位置来执行另一次读写操作。所以就有了寻址的耗时，此外还有旋回耗时，读写头需要等待碟片上的目标数据“旋转到位”才能进行操作。使用缓存当然是能够提升性能的，但上述原理仍然成立。
+
+在这一时间段（即"I/O等待"）内，线程是在“阻塞”着等待磁盘，此时操作系统可以将那个空闲的CPU核心用于服务其他线程。所以，由于线程总是在I/O上阻塞，我们可以让线程/连接数比CPU核心多一些，这样能够在同样的时间内完成更多的工作。
+
+那么应该多多少呢？这要取决于*磁盘*。较新型的SSD不需要寻址，也没有旋转的碟片。可别想当然地认为“SSD速度更快，所以我们应该增加线程数”，恰恰相反，无需寻址和没有旋回耗时意味着**更少的阻塞**，所以更少的线程[更接近于CPU核心数]会发挥出更高的性能。**只有当阻塞创造了更多的执行机会时，更多的线程数才能发挥出更好的性能**。
+
+*网络*和*磁盘*类似。通过以太网接口读写数据时也会形成阻塞，10G带宽会比1G带宽的阻塞少一些，1G带宽又会比100M带宽的阻塞少一些。不过网络通常是放在第三位考虑的，有些人会在性能计算中忽略它们。
+
+![img](https:////upload-images.jianshu.io/upload_images/4840514-69429d3d9a6d9261.png?imageMogr2/auto-orient/strip|imageView2/2/w/643/format/webp)
+
+image.png
+
+上图是PostgreSQL的benchmark数据，可以看到TPS增长率从50个连接数开始变缓。在上面Oracle的视频中，他们把连接数从2048降到了96，实际上96都太高了，除非服务器有16或32颗核心。
+
+#### 计算公式
+
+下面的公式是由PostgreSQL提供的，不过我们认为可以广泛地应用于大多数数据库产品。你应该模拟预期的访问量，并从这一公式开始测试你的应用，寻找最合适的连接数值。
+
+**连接数 = ((核心数 \* 2) + 有效磁盘数)**
+
+> 核心数不应包含超线程(hyper thread)，即使打开了hyperthreading也是。如果活跃数据全部被缓存了，那么有效磁盘数是0，随着缓存命中率的下降，有效磁盘数逐渐趋近于实际的磁盘数。这一公式作用于SSD时的效果如何尚未有分析。
+
+按这个公式，你的4核i7数据库服务器的连接池大小应该为((4 * 2) + 1) = 9。取个整就算是是10吧。是不是觉得太小了？跑个性能测试试一下，我们保证它能轻松搞定3000用户以6000TPS的速率并发执行简单查询的场景。如果连接池大小超过10，你会看到响应时长开始增加，TPS开始下降。
+
+> 笔者注：
+>  这一公式其实不仅适用于数据库连接池的计算，大部分涉及计算和I/O的程序，线程数的设置都可以参考这一公式。我之前在对一个使用Netty编写的消息收发服务进行压力测试时，最终测出的最佳线程数就刚好是CPU核心数的一倍。
+
+#### 公理：你需要一个小连接池，和一个充满了等待连接的线程的队列
+
+如果你有10000个并发用户，设置一个10000的连接池基本等于失了智。1000仍然很恐怖。即是100也太多了。你需要一个10来个连接的小连接池，然后让剩下的业务线程都在队列里等待。连接池中的连接数量应该等于你的数据库能够有效同时进行的查询任务数（通常不会高于2*CPU核心数）。
+
+我们经常见到一些小规模的web应用，应付着大约十来个的并发用户，却使用着一个100连接数的连接池。这会对你的数据库造成极其不必要的负担。
+
+#### 请注意
+
+连接池的大小最终与系统特性相关。
+
+比如一个混合了长事务和短事务的系统，通常是任何连接池都难以进行调优的。最好的办法是创建两个连接池，一个服务于长事务，一个服务于短事务。
+
+再例如一个系统执行一个任务队列，只允许一定数量的任务同时执行，此时并发任务数应该去适应连接池连接数，而不是反过来。
+
+
+
+
+
+帮忙补充一下 通常短事务比较多的场景符合文中所说，核心就是短事务时间短到比线程切换的消耗还要小。如果长事务为主 那么上面公式就不符合了。这种情况下最好创建两个不同的 web服务端连接池。
+
+
+
+其实web服务那边的数据库线程数和 数据库配置的连接线程数也是一样的。如果web服务设置的比较大，数据库max_connection设置的 小，由于web服务这边连接的线程数都打到一个数据库，超过max_connection的线程实际上是进行排队的，因此web服务这边的数据库线程数 设置过大也没有意义。
+
+
+
+超过max_connection，不会排队，会报错 too many connections，体现在web服务这边数据库是不可用的
+
+
+
+可以查阅文末的参考译文 《 数据库连接池到底应该设多大？这篇文章可能会颠覆你的认知 》
+
+推荐去看Github上的原文 <a href="https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing" target="_blank">About Pool Sizing</a>
+
+
+
+这里面又涉及数据库连接池，线程池等的概念（我现在理解的是，他们二者有些地方类似，所以借由线程池的一些分析，来给连接池下结论，但毕竟不能很确定，所以建议去看看文章）
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### 数据库连接池，稍微涉及一点与线程池的比较
+
+
+
+
+
+池(Pool)技术在一定程度上可以明显优化服务器应用程序的性能，提高程序执行效率和降低系统资源开销。这里所说的池是一种广义上的池，比如数据库连接池、线程池、内存池、对象池等。其中，对象池可以看成保存对象的容器，在进程初始化时创建一定数量的对象。需要时直接从池中取出一个空闲对象，用完后并不直接释放掉对象，而是再放到对象池中以方便下一次对象请求可以直接复用。其他几种池的设计思想也是如此，池技术的优势是，可以消除对象创建所带来的延迟，从而提高系统的性能。
+
+
+
+
+
+
+
+
+
+
+
+
+
+2.什么是数据库连接池？
+
+答：数据库连接是负责分配、管理和释放数据库连接。使用数据库连接池是因为数据库连接是一种关键的有限的昂贵的资源，这一点在多用户的网页应用程序中体现得尤为突出。如weblogic、tomcat、WebSphere容器都实现了数据库连接池，但是数据库连接池是可以独立出来自己编码实现的。
+
+​    数据库连接池在系统启动时初始化了一定量maxIdle=idlenum的数据库连接，即没有他的使用中的链接被释放的情况下，连接池中保存的最大空闲链接数。数据库连接请求如果没有超过idle的值则直接去连接池中获取；如果超过了maxIdle的值则新建一个数据库连接；但如果数据库连接池中的连接总数超过了maxActive=activenum则 (如下处理)；
+
+
+1 直接抛错 
+2 让想要借出连接的线程等待一段时间，如果等不到，再抛错 
+3 每隔一段检查一次pool，直到有可用连接，否则一直等下去 
+4 永远可以拿到(视情况需要maxActive不设置或0或负) 
+
+但当没有可以使用的数据库链接的时候，连接池将要等待一个链接被返回的最长时间（毫秒）maxWait=waitnum，超过这个时间就要抛出异常。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### JNDI 简述
+
+
+
+
+
+
+
+在实际开发中，我们有时候还会使用服务器提供给我们的数据库连接池，比如我们希望Tomcat服务器在启动的时候可以帮我们创建一个数据库连接池，那么我们在应用程序中就不需要手动去创建数据库连接池，直接使用Tomcat服务器创建好的数据库连接池即可。要想让Tomcat服务器在启动的时候帮我们创建一个数据库连接池，那么需要简单配置一下Tomcat服务器。
+
+4.1、JNDI技术简介
+　　JNDI(Java Naming and Directory Interface)，Java命名和目录接口，它对应于J2SE中的javax.naming包，
+　　这 套API的主要作用在于：它可以把Java对象放在一个容器中（JNDI容器），并为容器中的java对象取一个名称，以后程序想获得Java对象，只需 通过名称检索即可。其核心API为Context，它代表JNDI容器，其lookup方法为检索容器中对应名称的对象。
+
+　　Tomcat服务器创建的数据源是以JNDI资源的形式发布的，所以说在Tomat服务器中配置一个数据源实际上就是在配置一个JNDI资源
+
+服务器创建好数据源之后，我们的应用程序又该怎么样得到这个数据源呢，Tomcat服务器创建好数据源之后是以JNDI的形式绑定到一个JNDI容器中的，我们可以把JNDI想象成一个大大的容器，我们可以往这个容器中存放一些对象，一些资源，JNDI容器中存放的对象和资源都会有一个独一无二的名称，应用程序想从JNDI容器中获取资源时，只需要告诉JNDI容器要获取的资源的名称，JNDI根据名称去找到对应的资源后返回给应用程序。我们平时做javaEE开发时，服务器会为我们的应用程序创建很多资源，比如request对象，response对象，服务器创建的这些资源有两种方式提供给我们的应用程序使用：第一种是通过方法参数的形式传递进来，比如我们在Servlet中写的doPost和doGet方法中使用到的request对象和response对象就是服务器以参数的形式传递给我们的。第二种就是JNDI的方式，服务器把创建好的资源绑定到JNDI容器中去，应用程序想要使用资源时，就直接从JNDI容器中获取相应的资源即可。
+
+　　对于上面的name="jdbc/datasource"数据源资源，在应用程序中可以用如下的代码去获取
+
+1 Context initCtx = new InitialContext();
+2 Context envCtx = (Context) initCtx.lookup("java:comp/env");
+3 dataSource = (DataSource)envCtx.lookup("jdbc/datasource");
+此种配置下，数据库的驱动jar文件需放置在tomcat的lib下
+
+
+
+
+
+jndi全称是java naming and directory interface。简单点就是你按命名规则给一个东西命名然后你就可以通过该名字在特定环境下直接查找到该东西了。
+
+JNDI是用于向Java程序提供目录和命名功能的API。可以简单地把JNDI理解为一种将对象和名字绑定的技术，对象工厂负责生产出对象，这些对象都和惟一的名字绑定。外部程序可以通过名字来获取对某个对象的引用。在一个文件系统中，文件名被绑定给文件。在DNS中，一个IP地址绑定一个URL。在目录服务中，一个对象名被绑定给一个对象实体。
+
+在Intranets(企业内部网)和Internates（互联网）中目录服务(Directory service)都非常重要，它规范了命名规则，让人们容易理解实体及之间的关系。JNDI是Java平台的一个标准扩展，提供了一组接口、类和关于命名空间的概念。JNDI目前所支持的技术包括LDAP、CORBA Common Object Service（COS）名字服务、RMI、NDS、DNS、Windows注册表等等。
+
+jndi被设计成独立于特定的目录服务，所以各种各样的目录都可以通过相同的方式进行访问。这样使用jndi的java程序员不仅可以获得统一规整的命名和目录，而且可以通过多层的命名方案无缝访问(seamless acess)目录对象。
+
+
+
+
+
+
+
+JNDI 只是一种资源管理方式
+C3P0是数据源连接池的配置方式
+这两个不能直接用来比较吧，使用JNDI管理数据库连接池，连接池可以使用C3P0，也可是使用DBCP等方式
+
+使用JNDI 是为了数据库资源的管理，在容器中配置一个数据库连接池，使用JNDI 来管理
+这样容器中运行多个服务的时候，每个服务只需添加一个jndi的名称就可以连接到数据库了
+如果不使用jndi的方式，直接在项目中配置数据库连接池，那么每个项目需要配置一次，如果更改数据库地址时，每个项目的数据库连接方式都要更改，比较麻烦
+使用jndi的话，直接更改一下jndi里面的数据库连接池的配置就可以了，方便一些。
+
+
+
+一般来说如果目标客户肯定有专业的应用服务器，比如 WebSphere 啥的，我们就不需要在代码中配置使用特定的 dbcp 或其它的连接池了，代码中只使用 JNDI 查找资源，将来部署到服务器上时在服务器上配置数据源（服务器帮我们准备了连接池实现方法）。
+
+有时候我们可能觉得使用自己的配置的连接池代码不用配置部署到任意服务器上都能用，这种理解其实没有明白 J2EE 开发为什么需要那么多的规范，你不能假设或强制你的客户必须使用你的方案，比如对一个大企业来说，它的一台应用服务器可能上面运行很多种独立应用程序，还可能与其它不同编程语言开发出来的组件服务互操作（分布式调用都有可能，负载均衡，故障容错），这些地方如果你要用自己的办法做就表示你的应用程序没打算与它们进行交互，将来新增功能时可能就需要改动你原来的设计。
+
+当然对于只是一个独立的 web 应用程序来说也确实不需要考虑太多，我们需要先明白客户的企业应用生态系统是什么样的，我们的应用程序在他们的森林中处在哪个位置是什么角色。
+
+
+
+
+
+
+
+JNDI(Java Naming and Directory Interface ):是SUN公司提供的一种标准的Java命名系统接口，是一组在Java应用中访问命名和目录服务的API。命名服务是将名称和对象联系起来，使得我们可以用名称访问对象。目录服务是一种命名服务,它提供了应用编程接口(application
+programming interface，API)和服务提供者接口(service provider interface，SPI)。这一点的真正含义是，要让应用与命名服务或目录服务交互，必须有这个服务的JNDI服务提供者，这正是JNDI
+SPI发挥作用的地方。服务提供者基本上是一组类，这些类为各种具体的命名和目录服务实现了JNDI接口—很象JDBC驱动为各种具体的数据库系统实现了JDBC接口一样。作为一个应用开发者，不必操心JNDI
+
+
+
+
+
+
+
+
+
+JNDI是为了一个最最核心的问题：是为了解耦，是为了开发出更加可维护、可扩展的系统
+JNDI和JDBC起的作用类似：
+JDBC（Java Data Base Connectivity,java数据库连接）是一种用于执行SQL语句的Java API，可以为多种关系数据库提供统一访问，它由一组用Java语言编写的类和接口组成。JDBC为工具/数据库开发人员提供了一个标准的API，据此可以构建更高级的工具和接口，使数据库开发人员能够用纯 Java API 编写数据库应用程序。
+JNDI(Java Naming and Directory Interface)是一个应用程序设计的API，为开发人员提供了查找和访问各种命名和目录服务的通用、统一的接口，类似JDBC都是构建在抽象层上。
+![img](https://images0.cnblogs.com/blog2015/280044/201507/270618072502946.jpg)
+
+JNDI是 Java 命名与目录接口（Java Naming and Directory Interface），在J2EE规范中是重要的规范之一，不少专家认为，没有透彻理解JNDI的意义和作用，就没有真正掌握J2EE特别是EJB的知识。 
+
+那么，JNDI到底起什么作用？//带着问题看文章是最有效的 
+要了解JNDI的作用，我们可以从“如果不用JNDI我们怎样做？用了JNDI后我们又将怎样做？”这个问题来探讨。 
+没有JNDI的做法： 
+程序员开发时，知道要开发访问MySQL数据库的应用，于是将一个对 MySQL JDBC 驱动程序类的引用进行了编码，并通过使用适当的 JDBC URL 连接到数据库。 
+就像以下代码这样：
+
+[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
+```
+        Connection con = null;
+        Statement stmt = null;
+        ResultSet rs = null;
+        try {
+            Class.forName("com.mysql.jdbc.Driver");
+//            con = DriverManager.getConnection("jdbc:mysql://localhost:3306/database", "user", "password");
+            con = DriverManager.getConnection("jdbc:mysql://localhost:3306/database?user=user&password=password");
+            stmt = con.createStatement();
+```
+
+[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
+这是传统的做法，也是以前非Java程序员（如Delphi、VB等）常见的做法。这种做法一般在小规模的开发过程中不会产生问题，只要程序员熟悉Java语言、了解JDBC技术和MySQL，可以很快开发出相应的应用程序。 
+
+没有JNDI的做法存在的问题： 
+1、数据库服务器名称MyDBServer 、用户名和口令都可能需要改变，由此引发JDBC URL需要修改； 
+2、数据库可能改用别的产品，如改用DB2或者Oracle，引发JDBC驱动程序包和类名需要修改； 
+3、随着实际使用终端的增加，原配置的连接池参数可能需要调整； 
+4、...... 
+
+解决办法： 
+程序员应该不需要关心“具体的数据库后台是什么？JDBC驱动程序是什么？JDBC URL格式是什么？访问数据库的用户名和口令是什么？”等等这些问题，程序员编写的程序应该没有对 JDBC 驱动程序的引用，没有服务器名称，没有用户名称或口令 —— 甚至没有数据库池或连接管理。而是把这些问题交给J2EE容器来配置和管理，程序员只需要对这些配置和管理进行引用即可。 
+
+由此，就有了JNDI。 
+//看的出来，是为了一个最最核心的问题：是为了解耦，是为了开发出更加可维护、可扩展//的系统 
+用了JNDI之后的做法： 
+首先，在在J2EE容器中配置JNDI参数，定义一个数据源，也就是JDBC引用参数，给这个数据源设置一个名称；然后，在程序中，通过数据源名称引用数据源从而访问后台数据库。 
+//红色的字可以看出，JNDI是由j2ee容器提供的功能 
+
+在描述JNDI，例如获得数据源时，JNDI地址 有两种写法，例如同是 jdbc/testDS 数据源： A: java:comp/env/jdbc/testDS B: jdbc/testDS
+
+这两种写法，配置的方式也不尽相同，第一种方法应该算是一种利于程序移植或迁移的方法，它的实现与“映射”的概念相 同，而B方法，则是一个硬引用。 java:comp/env 是环境命名上下文（environment naming context（ENC）），是在EJB规范1.1以后引入的，引入这个是为了解决原来JNDI查找所引起的冲突问题，也是为了提高EJB或者J2EE应 用的移植性。 在J2EE中的引用常用的有：     
+  JDBC 数据源引用在java:comp/env/jdbc 子上下文中声明     
+  JMS 连接工厂在java:comp/env/jms 子上下文中声明     
+  JavaMail 连接工厂在java:comp/env/mail 子上下文中声明     
+  URL 连接工厂在 java:comp/env/url子上下文中声明
+
+
+java:comp/env和JNDI是不同的，很多人都有一些混淆，甚至认为这个就是JNDI名称。
+其实，java:comp/env 是环境命名上下文（environment naming context（ENC），是在EJB规范1.1以后引入的，引入这个是为了解决原来JNDI查找所引起的冲突问题。比如你要把一个EJB的Jar包部署到两台Server，而这两台Server共享一台JNDI名字空间，此时问题就出来了，因为JNDI名字空间要求JNDI名字必须唯一。使用ENC查找，将可以避免这个冲突，EJB或者J2EE应用的移植性也提高了。 ENC是一个引用，引用是用于定位企业应用程序的外部资源的逻辑名。引用是在应用程序部署描述符文件中定义的。在部署时，引用被绑定到目标可操作环境中资源的物理位置（ JNDI 名）。使用ENC是把对其它资源的JNDI查找的硬编码解脱出来，通过配置这个引用可以在不修改代码的情况下，将引用指向不同的EJB(JNDI)。
+
+
+
+可以通过下面的结构示意来发现这两种描述的不同之处：
+A:    java:comp/env/jdbc/testDS(虚地址)  ------>  映射描述符  ------>    jdbc/testDS (实际的地址)
+B:    jdbc/testDS (实际的地址) 从这种结构上来看，A的确是便于移植的。
+
+再来看一个例子： 假如你需要获取datasource，例如：dataSource = (DataSource) ctx.lookup("java:comp/env/jdbc/testDS"); 那么在配置文件中进行资源映射时，在web.xml中,
+
+```
+     <resource-ref>
+        <res-ref-name>jdbc/testDS</res-ref-name>
+        <res-type>javax.sql.DataSource</res-type>
+        <res-auth>Container</res-auth>
+      </resource-ref>
+```
+
+在相应的资源配置xml中（不同的应用服务器均不同，WSAD中，可以进行可视化的设置），
+
+```
+    <reference-descriptor>
+      <resource-description>
+        <res-ref-name>jdbc/DBPool</res-ref-name>
+        <jndi-name>OraDataSource</jndi-name>
+      </resource-description>
+    </reference-descriptor>
+```
+
+Tomcat5.5h server.xml中加入：
+
+[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
+```
+<Context
+            docBase="D:/workspace/Hello/WebContent"
+            path="/Hello"
+            reloadable="true">
+          <Resource
+            name="jdbc/DBPool"
+            type="javax.sql.DataSource"
+            maxActive="100"
+            maxIdle="10"
+            maxWait="3000"
+            driverClassName="com.microsoft.sqlserver.jdbc.SQLServerDriver"
+            url="jdbc:sqlserver://192.168.1.37:1433;DatabaseName=xxx;user=sa;password=sa123"/>
+</Context>
+```
+
+[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
+实际服务器中的JNDI名字是OraDataSource，逻辑名jdbc/DBPool只是用来和它作映射的，这样做的好处是为了提高可移植性，移植的 时候只需要把配置文件改一下就可以，而应用程序可不用改动。
+
+java:comp/env是标准的J2EE环境查找规则使用这种方式必须做一次环境名到JNDI名的映射这种隔离使得在写程序时不必关注真正的 JNDI名字其实说白了跟把JNDI名放到配置文件里是一样的用法，如把java:comp/env/my/datasource映射到 my.ora.dataource
+
+补充一下不加的时候是全局的JNDI名，这样将造成应用间EJB的耦合太高，不建议使用
+
+注:
+
+java:comp/env/  前面是固定的 
+java:comp/env是标准的J2EE环境查找规则 
+comp是company的缩写
+env是environment的缩写
+使用这种方式必须做一次环境名到JNDI名的映射 这种隔离使得在写程序时不必关注真正的JNDI名字 其实说白了跟把JNDI名放到配置文件里是一样的 
+
+其他扩展：
+
+J2EE 1.3 ，资源的管理绑定一个资源，但是使用时应该先配置资源引用 。 你在 web.xml 中或者 ejb-jar.xml 上配置对 EJB 或者 DataSource 的引用才能使用相应的资源。 不管是资源的配置还是资源引用的配置都可以在布署的阶段来修改的， 但是程序可以不用改，你只要让引用不变就行了，因为你自己容器中将要放多少东西你写代码时就知道(就是一个项目要用的东西)，但是你的服务器中将来要放多 少资源你写代码时是不知道的，因为资源是在整个服务器，很容易在将来的某个时候可能多得不可管理。
+
+在 web.xml 和 ejb-jar.xml 都可以有个 mycompay/abc 这个资源引用，名字相同没关系，因为它们在不同的容器中，只要同一个容器中唯一就行了,资源引用与实际资源的JNDI 相同也没关系。
+
+现在的应用服务器都支持 J2EE 1.3，都会有个把 资源引用对应到一个实际的资源的这么一个配置文件。 像 IBM WebSphere 在 web 项目中 /WEB-INF/ibm-web-bnd.xml 就是用来将一个资源引用绑定到实际的 JNDI 资源上去的， 而EJB 项目中是 ibm-ejb-jar-bnd.xml 。 我用 &Web&Sphere &Application &Developer 开发的时候， 在 web.xml 中添加一个资源引用，比如对数据源的引用 ，WSAD 会自动到 ibm-web-bnd.xml中添加一个相应的绑定条目，如果我在 ejb-jar.xml 中添加一个 Local Ejb Ref , WSAD 也会自动到 ibm-ejb-jar-bnd.xml 中添加一个相应的条目。 
+
+假如你写了一个EJB，获取datasource如：dataSource = (DataSource) ctx.lookup("java:comp/env/jdbc/DBPool"); 那么在配置文件中进行资源映射时，在ejb-jar.xml中,
+
+```
+      <resource-ref> 
+        <res-ref-name>jdbc/DBPool</res-ref-name> 
+        <res-type>javax.sql.DataSource</res-type> 
+        <res-auth>Container</res-auth> 
+      </resource-ref> 
+```
+
+在weblogic-ejb-jar.xml中，
+
+```
+    <reference-descriptor> 
+      <resource-description> 
+        <res-ref-name>jdbc/DBPool</res-ref-name> 
+        <jndi-name>OraDataSource</jndi-name> 
+      </resource-description> 
+    </reference-descriptor> 
+```
+
+//转者注：如果是在jboss则在jboss.xml中做如下修改
+
+```
+    <resource-managers> 
+        <resource-manager> 
+            <res-name>jdbc/DBPool</res-name> 
+            <res-jndi-name>OraDataSource</res-jndi-name> 
+        </resource-manager> 
+    </resource-managers> 
+```
+
+实际服务器中的JNDI名字是OraDataSource，逻辑名jdbc/DBPool只是用来和它作映射的，这样做的好处是为了提高可移植性，移植的 时候只需要把配置文件改一下就可以，而应用程序可不用改动。
+
+假如你写了一个一般的应用程序，想直接通过JNDI来获取数据源，那么直接lookup(“mytest”)就可以了（假如服务器上的JNDI为 mytest），用第一种写法反而会报错的。
+
+http://blog.csdn.net/tony8829/article/details/7252651
+
+
+
+具体操作如下（以JBoss为例）： 
+1、配置数据源 
+在JBoss 的 D:\jboss420GA\docs\examples\jca 文件夹下面，有很多不同数据库引用的数据源定义模板。将其中的 mysql-ds.xml 文件Copy到你使用的服务器下，如 D:\jboss420GA\server\default\deploy。 
+修改 mysql-ds.xml 文件的内容，使之能通过JDBC正确访问你的MySQL数据库，如下： 
+
+[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
+```
+<?xml version="1.0" encoding="UTF-8"?>  
+<datasources>  
+<local-tx-datasource>  
+    <jndi-name>MySqlDS</jndi-name>  
+    <connection-url>jdbc:mysql://localhost:3306/lw</connection-url>  
+    <driver-class>com.mysql.jdbc.Driver</driver-class>  
+    <user-name>root</user-name>  
+    <password>rootpassword</password>  
+<exception-sorter-class-name>  
+org.jboss.resource.adapter.jdbc.vendor.MySQLExceptionSorter  
+</exception-sorter-class-name>  
+    <metadata>  
+       <type-mapping>mySQL</type-mapping>  
+    </metadata>  
+</local-tx-datasource>  
+</datasources>
+```
+
+[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
+这里，定义了一个名为MySqlDS的数据源，其参数包括JDBC的URL，驱动类名，用户名及密码等。 
+2、在程序中引用数据源：
+
+[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
+```
+Connection conn=null;  
+try {  
+  Context ctx=new InitialContext();  
+  Object datasourceRef=ctx.lookup("java:MySqlDS"); //引用数据源  
+  DataSource ds=(Datasource)datasourceRef;  
+  conn=ds.getConnection();  
+  ......  
+  c.close();  
+} catch(Exception e) {  
+  e.printStackTrace();  
+} finally {  
+  if(conn!=null) {  
+    try {  
+      conn.close();  
+    } catch(SQLException e) { }  
+  }  
+} 
+```
+
+[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
+直接使用JDBC或者通过JNDI引用数据源的编程代码量相差无几，但是现在的程序可以不用关心具体JDBC参数了。//解藕了，可扩展了 
+在系统部署后，如果数据库的相关参数变更，只需要重新配置 mysql-ds.xml 修改其中的JDBC参数，只要保证数据源的名称不变，那么程序源代码就无需修改。 
+
+由此可见，JNDI避免了程序与数据库之间的紧耦合，使应用更加易于配置、易于部署。 
+
+JNDI的扩展： 
+JNDI在满足了数据源配置的要求的基础上，还进一步扩充了作用：所有与系统外部的资源的引用，都可以通过JNDI定义和引用。 
+//注意什么叫资源 
+
+所以，在J2EE规范中，J2EE 中的资源并不局限于 JDBC 数据源。引用的类型有很多，其中包括资源引用（已经讨论过）、环境实体和 EJB 引用。特别是 EJB 引用，它暴露了 JNDI 在 J2EE 中的另外一项关键角色：查找其他应用程序组件。 
+
+EJB 的 JNDI 引用非常类似于 JDBC 资源的引用。在服务趋于转换的环境中，这是一种很有效的方法。可以对应用程序架构中所得到的所有组件进行这类配置管理，从 EJB 组件到 JMS 队列和主题，再到简单配置字符串或其他对象，这可以降低随时间的推移服务变更所产生的维护成本，同时还可以简化部署，减少集成工作。外部资源”。 
+
+
+总结： 
+J2EE 规范要求所有 J2EE 容器都要提供 JNDI 规范的实现。//sun 果然喜欢制定规范JNDI 在 J2EE 中的角色就是“交换机” —— J2EE 组件在运行时间接地查找其他组件、资源或服务的通用机制。在多数情况下，提供 JNDI 供应者的容器可以充当有限的数据存储，这样管理员就可以设置应用程序的执行属性，并让其他应用程序引用这些属性（Java 管理扩展（Java Management Extensions，JMX）也可以用作这个目的）。JNDI 在 J2EE 应用程序中的主要角色就是提供间接层，这样组件就可以发现所需要的资源，而不用了解这些间接性。 
+
+在 J2EE 中，JNDI 是把 J2EE 应用程序合在一起的粘合剂，JNDI 提供的间接寻址允许跨企业交付可伸缩的、功能强大且很灵活的应用程序。这是 J2EE 的承诺，而且经过一些计划和预先考虑，这个承诺是完全可以实现的。 
+
+**
+从上面的文章中可以看出： 
+1、JNDI 提出的目的是为了解藕，是为了开发更加容易维护，容易扩展，容易部署的应用。 
+2、JNDI 是一个sun提出的一个规范(类似于jdbc),具体的实现是各个j2ee容器提供商，sun  只是要求，j2ee容器必须有JNDI这样的功能。 
+3、JNDI 在j2ee系统中的角色是“交换机”，是J2EE组件在运行时间接地查找其他组件、资源或服务的通用机制。 
+4、JNDI 是通过资源的名字来查找的，资源的名字在整个j2ee应用中(j2ee容器中)是唯一的。** 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ JNDI是Java Naming and Directory Interface（JAVA命名和目录接口）的英文简写，它是为JAVA应用程序提供命名和目录访问服务的API（Application Programing Interface，应用程序编程接口）。
+
+1．命名的概念与应用 
+        JNDI中的命名（Naming），就是将Java对象以某个名称的形式绑定（binding）到一个容器环境（Context）中，以后调用容器环境（Context）的查找（lookup）方法又可以查找出某个名称所绑定的Java对象。读者也许会感到奇怪：自己创建一个Java对象，将其绑定到JNDI容器环境中后又查询出来，这有什么意思？在真实的项目应用中，通常是由系统程序或框加程序先将资源对象绑定到JNDI环境中，以后在该系统或框架中运行的模块程序就可以从JNDI环境中查找这些资源对象了。例如，Tomcat服务器在启动时可以创建一个连接到某种数据库系统的数据源（DataSource）对象，并将该数据源（DataSource）对象绑定到JNDI环境中，以后在这个Tomcat服务器中运行的Servlet和JSP程序就可以从JNDI环境中查询出这个数据源（DataSource）对象进行使用，而不用关心数据源（DataSource）对象是如何创建出来的，这种方式极大地增强了系统的可维护性，当数据库系统的连接参数发生变更时，这只是Tomcat系统管理员一个人要关心的事情，而与所有的应用程序开发人员无关。 
+        容器环境（Context）本身也是一个Java对象，它也可以通过一个名称绑定到另一个容器环境（Context）中。将一个Context对象绑定到另外一个Context对象中，这就形成了一种父子级联关系，多个Context对象最终可以级联成一种树状结构，树中的每个Context对象中都可以绑定若干个Java对象，如图6.10所示。 
+
+图6.10 
+        图6.10中的每个方框分别代表一个Context对象，它们绑定的名称分别为a、b、c、d、e，b和c是a的子Context，d是b的子Context，e又是d的子Context。图9.x中的各个方框内的每个小椭圆分别代表一个Java对象，它们也都有一个绑定的名称，这些绑定名称分别为dog、pig、sheet等，在同一个Context不能绑定两个相同名称的Java对象，在不同的Context中可以出现同名的绑定对象。可见，Context树的级联结构与文件系统中的目录结构非常类似，Context与其中绑定的Java对象的关系也非常类似于文件系统中的目录与文件的关系。从图6.10中可以看到，要想得到Context树中的一个Java对象，首先要得到其所在的Context对象，只要得到了一个Context对象，就可以调用它的查询（lookup）方法来获得其中绑定的Java对象。另外，调用某个Context对象的lookup方法也可以获得Context树中的任意一个Context对象，这只需要在lookup方法中指定相应的Context路径即可。在JNDI中不存在着“根”Context的概念，也就是说，执行JNDI操作不是从一个“根”Context对象开始，而是可以从Context树中的任意一个Context开始。无论如何，程序必须获得一个作为操作入口的Context对象后才能执行各种JNDI命名操作，为此，JNDI API中提供了一个InitialContext类来创建用作JNDI命名操作的入口Context对象。Context是一个接口，Context对象实际上是Context的某个实现类的实例对象，选择这个具体的Context实现类并创建其实例对象的过程是由一个Context工厂类来完成的，这个工厂类的类名可以通过JNDI的环境属性java.naming.factory.initial指定，也可以根据Context的操作方法的url参数的Schema来选择。
+
+2．目录的概念与应用 
+        JNDI中的目录（Directory）与文件系统中的目录概念有很大的不同，JNDI中的目录（Directory）是指将一个对象的所有属性信息保存到一个容器环境中。JNDI的目录（Directory）原理与JNDI的命名（Naming）原理非常相似，主要的区别在于目录容器环境中保存的是对象的属性信息，而不是对象本身，所以，目录提供的是对属性的各种操作。事实上，JNDI的目录（Directory）与命名（Naming）往往是结合在一起使用的，JNDI API中提供的代表目录容器环境的类为DirContext，DirContext是Context的子类，显然它除了能完成目录相关的操作外，也能完成所有的命名（Naming）操作。DirContext是对Context的扩展，它在Context的基础上增加了对目录属性的操作功能，可以在其中绑定对象的属性信息和查找对象的属性信息。JNDI中的目录（Directory）的结构示意图如图6.11所示。 
+
+图6.11 
+        图6.11中的每个最外层的方框分别代表一个DirContext对象，它们绑定的名称分别为a、b，b是a的子DirContext。图6.11中的各个最外层的方框内的每个小椭圆分别代表一个Java对象，各个里层的方框分别代表一个对象的属性。从名称为a的DirContext中的内容可以看到，一个DirContext容器环境中即可以绑定对象自身，也可以绑定对象的属性信息，绑定的对象和绑定的属性是完全独立的两个事物，即使它们的绑定名称相同，它们的操作也是完全独立的。另外，一个属性可以有多个属性值，例如，dog对象的category属性就设置了两个属性值：meat和pet。从名称为b的DirContext中的内容可以看到，一个DirContext容器环境中也可以只绑定对象的属性信息，而不绑定任何对象自身。与Context的操作原理类似，JNDI API中提供了一个InitialDirContext类来创建用作JNDI命名与目录属性操作的入口DirContext对象。
+
+3. JNDI 应用例子
+
+  使用JNDI，创建一个数据源
+
+ context.xml 配置数据库连接信息
+
+<?xml version="1.0" encoding="UTF-8"?>
+<Context>
+
+    <!-- Default set of monitored resources. If one of these changes, the    -->
+    <!-- web application will be reloaded.                                   -->
+    <WatchedResource>WEB-INF/web.xml</WatchedResource>
+    <WatchedResource>${catalina.base}/conf/web.xml</WatchedResource>
+     
+    <!-- Uncomment this to disable session persistence across Tomcat restarts -->
+    <!--
+    <Manager pathname="" />
+    -->
+    <Resource name="jdbc/mysql" auth="Container"
+              type="javax.sql.DataSource" driverClassName="com.mysql.jdbc.Driver"
+              url="jdbc:mysql://127.0.0.1:3306/task"
+              username="root" password="123456" maxTotal="20" maxIdle="10"
+              maxWaitMillis="-1"/>
+</Context>
+ web.xml 中引用数据源
+
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0">
+    <welcome-file-list>
+        <welcome-file>index.html</welcome-file>
+    </welcome-file-list>
+    <resource-ref>
+        <res-ref-name>jdbc/mysql</res-ref-name>
+        <res-type>javax.sql.DataSource</res-type>
+        <res-auth>Container</res-auth>
+    </resource-ref>
+
+</web-app>
+   获取Connection对象，查询数据库
+
+package com.gyb.servlet;
+
+import javax.naming.Context;
+import javax.naming.InitialContext;
+import javax.servlet.ServletException;
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.sql.DataSource;
+import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+
+/**
+ * @Author: geng
+ * @Date: 2018/9/15
+ */
+@WebServlet("/test")
+public class Servlet1 extends HttpServlet {
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        try {
+            Context initContext = new InitialContext();
+            Context envContext = (Context) initContext.lookup("java:/comp/env");
+            DataSource ds = (DataSource) envContext.lookup("jdbc/mysql");
+            Connection conn = ds.getConnection();
+            PreparedStatement ps = conn.prepareStatement("select * from t_role");
+            ResultSet rs = ps.executeQuery();
+            System.out.println(rs.next());
+            rs.close();
+            conn.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### 参考文章
+
+
+
+**The snail  SQL -注释方法   https://www.cnblogs.com/gengyufei/p/12617930.html**
+
+**CoCoDyf  JDBC快速入门教程   https://www.yiibai.com/jdbc/jdbc_quick_guide.html** 
+
+
+
+**行之间  JDBC和驱动类Driver   https://www.cnblogs.com/zxfei/p/11186325.html**
+
+**HaC是个程序员  statement和prepareStatement的区别   https://blog.csdn.net/yudianxiaoxiao/article/details/100879175**
+
+**HuSam  使用JDBC的addBatch()方法提高效率   https://www.cnblogs.com/husam/p/3830225.html**
+
+**weixin_34344403  JDBC API的那些事，你真的知道吗?   https://blog.csdn.net/weixin_34344403/article/details/87994947**
+
+
+
+**名称不能为null  JNDI DBCP C3P0 JDBC ODBC 关系与区别 通俗易懂   https://blog.csdn.net/qq_36090419/article/details/70149454**
+
+
+
+**其实我叫孟小贤  数据库连接JDBC与数据库连接池c3p0、dhcp的关系   https://blog.csdn.net/mxcsdn/article/details/80301936**
+
+**CodeWorkerZHL  c3p0数据库连接池配置总结   https://blog.csdn.net/zhanghanlun/article/details/80918422**
+
+**阡陌等待  C3P0连接池详解及配置   https://www.cnblogs.com/shqblogs/p/5582177.html**
+
+
+
+
+
+**哼哼_hello  java 数据库连接池介绍   https://blog.csdn.net/mxnxsyu/article/details/29557961**
+
+**anonySuperziy  HiKariCP和Druid对比使用整理自测   https://blog.csdn.net/qq_17085463/article/details/90486515**
+
+
+
+**不好说  jdbc,mybatis,hibernate各自优缺点及区别   https://www.cnblogs.com/rzqz/p/7266092.html**
+
+
+
+**难再晨  总结传统JDBC以及MyBatis和Hibernate的对比   https://blog.csdn.net/zwg_html/article/details/56033935**
+
+**johnny233  JDBC与数据库连接池   https://blog.csdn.net/lonelymanontheway/article/details/83339837**
+
+**coco_xu  详解数据库连接池概念、原理、运行机制等   https://www.cnblogs.com/cocoxu1992/p/11031908.html**
+
+**郭嵩阳  Java程序为什么需要数据库连接池   https://blog.csdn.net/xubo_zhang/article/details/8239754?spm=1001.2014.3001.5502**
+
+**kelgon  数据库连接池到底应该设多大？这篇文章可能会颠覆你的认知   https://www.jianshu.com/p/a8f653fc0c54**
+
+**猿来是U_U  数据库与数据源的区别   https://blog.csdn.net/qq_39949109/article/details/80332223**
+
+**孤傲的小狼  几种常用数据库连接池的使用   https://blog.csdn.net/qq_36528311/article/details/87264571?spm=1001.2014.3001.5502**
+
+**不努力不配活着  java中几个主流的数据库连接池   https://blog.csdn.net/weixin_40751299/article/details/81609332?spm=1001.2014.3001.5502**
+
+**Cloud-Future  什么是JNDI？   https://blog.csdn.net/gybshen/article/details/82717578**
+
+**沧海一滴  JDNI   https://www.cnblogs.com/softidea/p/4679021.html**
+
