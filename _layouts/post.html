@@ -43,12 +43,24 @@ layout: default
         <div class="row">
 
     <!-- Post Container -->
-            <div class="
+<!--             <div class="
                 col-lg-8 col-lg-offset-2
                 col-md-10 col-md-offset-1
-                post-container">
+                post-container"> -->
+		    
+		    <div class="sidebar" id="sidebar">
+         <nav class="sidebar-nav">
+            {% include navitem.html %}
+         </nav>
+         {% if page.toc %}
+         <div class="toc">
+            <div class='toc-container'>
+               {% include toc.html html=content %}
+            </div>
+         </div>
+         {% endif %}
 
-				{{ content }}
+<!--  				{{ content }} -->
 
                 <hr style="visibility: hidden;">
 
